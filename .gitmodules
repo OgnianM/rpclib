@@ -1,6 +1,6 @@
-[submodule "extern/asio"]
-	path = extern/asio
+[submodule "external/asio"]
+	path = external/asio
 	url = https://github.com/chriskohlhoff/asio.git
-[submodule "extern/msgpack"]
-	path = extern/msgpack
+[submodule "external/msgpack"]
+	path = external/msgpack
 	url = https://github.com/msgpack/msgpack-c.git
