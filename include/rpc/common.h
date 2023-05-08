@@ -36,7 +36,7 @@ inline void rpc_msg(FILE *type, const char *msg, ...) {
     }                                                                          \
   } while (0);
 
-#define BUFFER_SIZE (1 << 16)
+#define BUFFER_SIZE (1 << 20)
 
 
 namespace rpc {

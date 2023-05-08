@@ -69,23 +69,33 @@ struct server : protected rpc_base<socket_t>,
                 } else {
                     std::apply(f, params);
                 }
+#ifdef RPC_ALLOW_LVALUE_REFS
+                pack_non_const_refs(params, res.lvalue_refs);
+#endif
+                auto result = pack_any(res);
+                this->write(result.data(), result.size());
+                this->write_enqueued();
             } else {
-                if constexpr(is_member_function) {
-                    res.return_value = pack_any(std::apply([this_ptr_, f]<typename... Ts>(Ts &&...args) {
-                        return (((typename traits::class_type *) this_ptr_)->*f)(std::forward<Ts &&>(args)...);
-                    }, params));
-                } else {
-                    res.return_value = pack_any(std::apply(f, params));
-                }
+                // Keep this alive until write_enqueued has finished, it may contain RPC buffers
+                auto invokation_result = [&]() {
+                    if constexpr (is_member_function) {
+                        return std::apply([this_ptr_, f]<typename... Ts>(Ts &&...args) {
+                            return (((typename traits::class_type *) this_ptr_)->*f)(std::forward<Ts &&>(args)...);
+                        }, params);
+                    } else {
+                        return std::apply(f, params);
+                    }
+                }();
+
+                res.return_value = pack_any(invokation_result);
+#ifdef RPC_ALLOW_LVALUE_REFS
+                pack_non_const_refs(params, res.lvalue_refs);
+#endif
+                auto result = pack_any(res);
+                this->write(result.data(), result.size());
+                this->write_enqueued();
             }
 
-#ifdef RPC_ALLOW_LVALUE_REFS
-            pack_non_const_refs(params, res.lvalue_refs);
-#endif
-
-            auto result = pack_any(res);
-            this->write(result.data(), result.size());
-            this->write_enqueued();
         });
     }
 

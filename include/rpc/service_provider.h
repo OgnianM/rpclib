@@ -15,13 +15,10 @@ struct declare_ssl_context<types::ssl_socket_t> {
 };
 
 /**
- * @brief An abstraction over a basic acceptor, provides utilities for SSL and
- * non-SSL connections, peer verification and thread management.
- * @tparam socket_t type of socket to use (either types::socket_t or
- * types::ssl_socket_t)
- * @tparam EntrypointService_ A class derived from rpc_server, which will be
- * used to handle incoming connections.
- * @note The service provider itself does not keep track of the
+ * @brief An abstraction over a basic acceptor, creates services for incoming connections
+ * @tparam socket_t type of socket to use (either types::socket_t or types::ssl_socket_t)
+ * @tparam EntrypointService_ A class derived from rpc::server, which will be used to handle incoming connections.
+ * @note The service provider does not keep track of the
  * EntrypointService_ objects it creates, they are considered self-managed, or
  * rather, owned by the remote client.
  */
@@ -46,10 +43,8 @@ struct service_provider : detail::declare_ssl_context<socket_t> {
      * @param ssl_ctx SSL context
      * @param thread_count std::thread::hardware_concurrency() by default
      */
-    service_provider(const asio::ip::tcp::endpoint &ep, asio::ssl::context &ssl_ctx,
-                     int thread_count = -1)requires(is_ssl): acceptor(ctx, ep),
-                                                             detail::declare_ssl_context<socket_t>(ssl_ctx),
-                                                             thread_count(thread_count) {}
+    service_provider(const asio::ip::tcp::endpoint &ep, asio::ssl::context &ssl_ctx, int thread_count = -1)
+    requires(is_ssl): acceptor(ctx, ep), detail::declare_ssl_context<socket_t>(ssl_ctx), thread_count(thread_count) {}
 
     ~service_provider() {
         ctx.stop();
@@ -73,10 +68,6 @@ struct service_provider : detail::declare_ssl_context<socket_t> {
         }
     }
 
-    void set_service_created_callback(const std::function<void(const std::shared_ptr<EntrypointService> &)> &callback) {
-        service_created_callback = callback;
-    }
-
 private:
     void accept() {
         acceptor.async_accept([this](asio::error_code ec, asio::ip::tcp::socket peer) {
@@ -87,28 +78,23 @@ private:
 
             std::shared_ptr<EntrypointService> svc;
             if constexpr (!is_ssl) {
-                svc = EntrypointService::template create<EntrypointService>(std::move(peer));
+                EntrypointService::template create<EntrypointService>(std::move(peer));
             } else {
                 // SSL handshake
                 rpc::types::ssl_socket_t sock(std::move(peer), this->ssl_context);
                 sock.handshake(asio::ssl::stream_base::handshake_type::server, ec);
                 ASIO_ERROR_GUARD(ec);
 
-                svc = EntrypointService::template create<EntrypointService>(std::move(sock));
+                EntrypointService::template create<EntrypointService>(std::move(sock));
             }
-            if (service_created_callback) {
-                service_created_callback(svc);
-            }
+
         });
     }
 
     int thread_count;
     asio::io_context ctx;
     std::vector<std::jthread> io_threads;
-
     asio::ip::tcp::acceptor acceptor;
-
-    std::function<void(const std::shared_ptr<EntrypointService> &)> service_created_callback;
 };
 
 }; // namespace rpc

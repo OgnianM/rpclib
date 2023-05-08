@@ -5,9 +5,6 @@
 
 namespace fs = std::filesystem;
 
-
-
-
 template<typename socket_t>
 struct FileService : rpc::server<socket_t> {
     FileService(socket_t&& sock) : rpc::server<socket_t>(std::move(sock)) {
@@ -22,16 +19,22 @@ struct FileService : rpc::server<socket_t> {
             this->bind("get", &FileService::get);
             this->bind("put", &FileService::put);
             this->bind("cd", &FileService::cd);
+            this->bind("get_dir", &FileService::get_dir);
+            this->bind("pwd", &FileService::pwd);
             return true;
         }
         return false;
     }
 
     void cd(const std::string& path) {
-        if (!fs::exists(root / path)) {
+        auto new_path = fs::canonical(root / path);
+        if (!fs::exists(new_path)) {
             throw std::runtime_error("Path does not exist");
         }
-        root = root / path;
+        if (!fs::is_directory(new_path)) {
+            throw std::runtime_error("Path is not a directory");
+        }
+        root = new_path;
     }
 
     std::vector<std::string> ls() {
@@ -42,12 +45,19 @@ struct FileService : rpc::server<socket_t> {
         return files;
     }
 
-    int fsize(const std::string& file_name) {
-        return fs::file_size(root / file_name);
-    }
+    std::string pwd() { return root.string(); }
+    int fsize(const std::string& file_name) { return fs::file_size(root / file_name); }
+    File get(const std::string& file_name) { return {root / file_name}; }
 
-    File get(const std::string& file_name) {
-        return {root / file_name};
+    std::vector<File> get_dir(const std::string& dir_name) {
+        std::vector<File> files;
+        for (const auto& entry : fs::recursive_directory_iterator(root / dir_name)) {
+            if (fs::is_regular_file(entry.path())) {
+                files.emplace_back(entry.path());
+                files.back().path = relative(entry.path(), root / dir_name).string();
+            }
+        }
+        return files;
     }
 
     void put(const std::string& file_name, const File& file) {

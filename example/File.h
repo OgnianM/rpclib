@@ -3,7 +3,7 @@
 #include <string>
 
 struct File {
-    File(const std::string& name) {
+    File(const std::string& name) : path(name) {
         std::ifstream ifs(name, std::ios::binary);
         if (!ifs.good()) {
             throw std::runtime_error("File not found");
@@ -24,6 +24,7 @@ struct File {
     File(File&& other) {
         data = other.data;
         size = other.size;
+        path = std::move(other.path);
         other.data = nullptr;
         other.size = 0;
     }
@@ -32,6 +33,7 @@ struct File {
     File& operator=(File&& other) {
         data = other.data;
         size = other.size;
+        path = std::move(other.path);
         other.data = nullptr;
         other.size = 0;
         return *this;
@@ -46,18 +48,22 @@ struct File {
     void* data = nullptr;
     size_t size = 0;
 
+    std::string path;
+
     template<typename Packer>
     void msgpack_pack(Packer &msgpack_pk) const {
-        msgpack::type::make_define_array(size).msgpack_pack(msgpack_pk);
+        msgpack::type::make_define_array(size, path).msgpack_pack(msgpack_pk);
         if (data) {
             rpc::buffer::enqueue_write(data, size);
         }
     }
     void msgpack_unpack(msgpack::object const &msgpack_o) {
-        msgpack::type::make_define_array(size).msgpack_unpack(msgpack_o);
+        msgpack::type::make_define_array(size, path).msgpack_unpack(msgpack_o);
         if (size) {
             data = malloc(size);
-            rpc::buffer::enqueue_read(data, size);
+            if (data) {
+                rpc::buffer::enqueue_read(data, size);
+            }
         }
     }
 };

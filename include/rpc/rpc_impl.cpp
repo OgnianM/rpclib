@@ -18,8 +18,7 @@ template <typename socket_t> asio::error_code write_enqueued(socket_t &socket) {
   asio::error_code ec;
 
   for (auto &[buffer, deleter] : enqueued_writes) {
-    RPC_MSG(RPC_DEBUG, "Writing buffer %ull of size %u", buffer.data(),
-            buffer.size());
+    RPC_MSG(RPC_DEBUG, "Writing buffer %ull of size %u", buffer.data(), buffer.size());
     asio::write(socket, buffer, ec);
     deleter((void*)buffer.data());
   }

@@ -92,7 +92,7 @@ private:
                         promise->set_value();
                     }
                 } catch(std::exception& e) {
-                    throw std::runtime_error("Failed to unpack return value: %s" + std::string(e.what()));
+                    throw std::runtime_error("Failed to unpack return value: " + std::string(e.what()));
                 }
             } catch(std::exception& e) {
                 try {

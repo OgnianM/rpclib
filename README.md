@@ -134,82 +134,15 @@ MsgPack is used for serialization, custom types being passsed as arguments/retur
 The library provides a way to bypass serialization by using RPC buffers, which will be written directly to the socket. <br>
 Custom types must additionally provide a default constructor, a move constructor and a move assignment operator. <br>
 
+Command buffers have a limited size (2^20 bytes == 1MiB), any large buffers should go through the rpc::buffer interface.
 
-Example custom type:
-```cpp
-struct File {
-    File(const std::string& name) {
-        std::ifstream ifs(name, std::ios::binary);
-        if (!ifs.good()) {
-            throw std::runtime_error("File not found");
-        }
-        ifs.seekg(0, std::ios::end);
-        size = ifs.tellg();
-        ifs.seekg(0, std::ios::beg);
-        data = malloc(size);
-        ifs.read((char*)data, size);
-    }
-
-    File(const File&) = delete;
-    File& operator=(const File&) = delete;
-
-    // region Required
-    File() = default;
-
-    File(File&& other) {
-        data = other.data;
-        size = other.size;
-        other.data = nullptr;
-        other.size = 0;
-    }
-
-
-    File& operator=(File&& other) {
-        data = other.data;
-        size = other.size;
-        other.data = nullptr;
-        other.size = 0;
-        return *this;
-    }
-    // endregion
-
-    ~File() {
-        if (data) {
-            free(data);
-        }
-    }
-    
-    template<typename Packer>
-    void msgpack_pack(Packer &msgpack_pk) const {
-        msgpack::type::make_define_array(size).msgpack_pack(msgpack_pk);
-        if (data) {
-            rpc::buffer::enqueue_write(data, size);
-        }
-    }
-    void msgpack_unpack(msgpack::object const &msgpack_o) {
-        msgpack::type::make_define_array(size).msgpack_unpack(msgpack_o);
-        if (size) {
-            data = malloc(size);
-            rpc::buffer::enqueue_read(data, size);
-        }
-    }
-    
-    void* data = nullptr;
-    size_t size = 0;
-};
-```
+An example custom type can be found in `example/File.h`
 
 `rpc::buffer::enqueue_write()` and `rpc::buffer::enqueue_read()` will write/read data to/from the socket, 
-the enqueued reads/writes will be executed once the packed message is passed, in the meantime, the pointers are stored
-in a pair of thread_local objects
-```cpp
-thread_local std::vector<asio::mutable_buffer> enqueued_reads;
-thread_local std::vector<std::pair<asio::const_buffer, std::function<void(void*)>>> enqueued_writes;
-```
+the enqueued reads/writes will be executed once the packed message is passed.
 
 Note that `rpc::buffer::euqneueue_write()` optionally takes a deallocator function:
-`void enqueue_write(void *ptr, uint32_t count, std::function<void(void *)> &&deleter = [](void*) {});
-`
+`void enqueue_write(void *ptr, uint32_t count, std::function<void(void *)> &&deleter = [](void*) {});`
 
 <h2> Example </h2>
-A full file transfer client/server example is provided in `examples/ssl_file_transfer_client.cpp` and `examples/ssl_file_transfer_server.cpp` <br>
+A full file transfer client/server example is provided in `example/ssl_file_transfer_client.cpp` and `examples/ssl_file_transfer_server.cpp` <br>
