@@ -12,7 +12,17 @@ Example:
 template<typename socket_t>
 struct hello_world_service : rpc::server<socket_t> {
     hello_world_service(socket_t&& socket) : rpc::server(std::move(socket)) {
-        this->bind("hello_world", &hello_world_service::hello_world);
+        this->bind("hello_world", &hello_world_service::hello_world, this);
+        
+        // Example binding different kinds of functions
+        // lambdas/functors
+        this->bind("my_lambda", [...](int& x) { x = 42; });    
+        // global functions
+        this->bind("my_global_func", my_global_func);
+        // member functions/virtual functions
+        this->bind("my_member_func", &hello_world_service::my_member_func, this);
+        // other member functions/virtual functions
+        this->bind("other_member_func", &other_class::other_member_func, other_class_instance_ptr);
     }
     
     std::string hello_world() {
@@ -20,25 +30,6 @@ struct hello_world_service : rpc::server<socket_t> {
     }
 };
 ```
-<h2> Binding different kinds of functions </h2>
-
-
-```cpp
-...
-// lambdas/functors
-this->bind("my_lambda", [...](int& x) { x = 42; });    
-// global functions
-this->bind("my_global_func", my_global_func);
-// member functions
-this->bind("my_member_func", &hello_world_service::my_member_func);
-// other member functions
-this->bind("other_member_func", &other_class::other_member_func, other_class_instance_ptr);
-```
-
-If an instance pointer is not specified for a member function, `rpc::server::this_ptr` will be used, 
-it can be changed by calling `rpc::server::set_this_ptr(new_ptr)`, the default value is `this`.
-
-
 
 <h2> rpc::service_provider </h2>
 

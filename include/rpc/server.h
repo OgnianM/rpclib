@@ -20,11 +20,14 @@ struct server : protected detail::rpc_base<socket_t>,
     void bind(const std::string &name, F &&f, void *this_ptr_ = nullptr) {
         using namespace detail;
 
-        if (this_ptr_ == nullptr) {
-            this_ptr_ = this_ptr;
-        }
-
         using traits = function_traits<F>;
+        constexpr bool is_member_function = std::is_member_function_pointer_v<F>;
+
+        if constexpr (is_member_function) {
+            if (this_ptr_ == nullptr) {
+                throw std::runtime_error("this_ptr cannot be nullptr for member functions");
+            }
+        }
 
 #ifndef RPC_ALLOW_LVALUE_REFS
         static_assert(!has_non_const_lvalue_refs<typename traits::parameter_tuple>(),
@@ -43,7 +46,6 @@ struct server : protected detail::rpc_base<socket_t>,
             // inside the function scope
             auto self = functions[name];
 
-            constexpr bool is_member_function = std::is_member_function_pointer_v<F>;
 
             // This acts like a caller stack, only decayed types
             typename traits::decayed_parameter_tuple decayed_params;
@@ -103,14 +105,6 @@ struct server : protected detail::rpc_base<socket_t>,
         unknown_function_called = callback;
     }
 
-
-    /**
-     * @brief Set the this pointer for member functions, can be overridden in bind
-     * by setting this_ptr_ to non-nullptr value
-     * @param ptr pointer to the object instance
-     */
-    void set_this_ptr(void *ptr) { this_ptr = ptr; }
-
     /**
      * @brief Clears bound functions
      * @note adds get_bound_functions and get_command_buffer_size to the list of bound functions
@@ -150,7 +144,6 @@ struct server : protected detail::rpc_base<socket_t>,
 protected:
     server(socket_t &&socket_) : detail::rpc_base<socket_t>(std::move(socket_)) { clear_bound(); }
 
-    void *this_ptr = this;
     std::unordered_map<std::string, std::shared_ptr<std::function<void(const std::string &)>>> functions;
     std::function<void(const std::string &, const std::string &)> unknown_function_called;
 
