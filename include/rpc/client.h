@@ -1,27 +1,19 @@
 #pragma once
-#include "asio/connect.hpp"
-#include "asio/error_code.hpp"
-#include "asio/io_context.hpp"
-#include "asio/ssl/context.hpp"
-#include "asio/ssl/stream_base.hpp"
 #include "common.h"
-#include <cstdio>
-#include <exception>
-#include <optional>
-#include <thread>
+
 
 namespace rpc {
 
-template <typename socket_t> struct client : protected rpc_base<socket_t> {
+template <typename socket_t> struct client : protected detail::rpc_base<socket_t> {
     static constexpr bool is_ssl = std::is_same_v<socket_t, rpc::types::ssl_socket_t>;
 
-    using rpc_base<socket_t>::rpc_base;
+    using detail::rpc_base<socket_t>::rpc_base;
 
     client(asio::io_context &ctx, const std::string &hostname, uint16_t port)
-    requires(!is_ssl) : rpc_base<socket_t>(rpc_try_connect(ctx, hostname, port)) {}
+    requires(!is_ssl) : detail::rpc_base<socket_t>(detail::rpc_try_connect(ctx, hostname, port)) {}
 
     client(asio::io_context &ctx, const std::string &hostname, uint16_t port, asio::ssl::context &ssl_ctx)
-    requires(is_ssl) : rpc_base<socket_t>(rpc_try_connect(ctx, hostname, port, ssl_ctx)) {}
+    requires(is_ssl) : detail::rpc_base<socket_t>(detail::rpc_try_connect(ctx, hostname, port, ssl_ctx)) {}
 
     template<typename Ret, typename... Args>
     std::future<std::decay_t<Ret>> async_call(const std::string &function_name, Args &&...args) noexcept {
@@ -42,6 +34,7 @@ private:
      */
     template<typename Ret, typename... Args>
     std::future<Ret> async_call_impl(const std::string& function_name, Args &&...args) noexcept {
+        using namespace rpc::detail;
         asio::error_code ec;
         rpc_command command { function_name, pack_any(std::forward<const Args &&>(args)...) };
 
@@ -103,7 +96,7 @@ private:
                 }
             }
         });
-        return std::move(future);
+        return future;
     }
 };
 

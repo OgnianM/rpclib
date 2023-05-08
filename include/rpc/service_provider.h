@@ -1,6 +1,6 @@
 #pragma once
-#include "common.h"
 #include "server.h"
+#include <thread>
 
 namespace rpc {
 
@@ -44,7 +44,7 @@ struct service_provider : detail::declare_ssl_context<socket_t> {
      * @param thread_count std::thread::hardware_concurrency() by default
      */
     service_provider(const asio::ip::tcp::endpoint &ep, asio::ssl::context &ssl_ctx, int thread_count = -1)
-    requires(is_ssl): acceptor(ctx, ep), detail::declare_ssl_context<socket_t>(ssl_ctx), thread_count(thread_count) {}
+    requires(is_ssl): detail::declare_ssl_context<socket_t>(ssl_ctx), acceptor(ctx, ep), thread_count(thread_count) {}
 
     ~service_provider() {
         ctx.stop();
@@ -91,10 +91,10 @@ private:
         });
     }
 
-    int thread_count;
     asio::io_context ctx;
-    std::vector<std::jthread> io_threads;
     asio::ip::tcp::acceptor acceptor;
+    int thread_count;
+    std::vector<std::jthread> io_threads;
 };
 
 }; // namespace rpc

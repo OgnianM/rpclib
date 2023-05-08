@@ -1,6 +1,8 @@
 #include <rpc/client.h>
 #include "File.h"
 #include <filesystem>
+#include <thread>
+
 namespace fs = std::filesystem;
 
 
@@ -9,6 +11,7 @@ int main(int argc, char **argv) {
         std::cerr << "Usage: " << argv[0] << " <host> <port> <password>\n";
         return 1;
     }
+
     asio::ssl::context ssl_ctx(asio::ssl::context::tlsv12);
     asio::io_context io_ctx(1);
     asio::executor_work_guard<decltype(io_ctx.get_executor())> work{io_ctx.get_executor()};

@@ -2,6 +2,8 @@
 
 namespace rpc {
 
+using namespace detail;
+
 namespace buffer {
 thread_local std::vector<asio::mutable_buffer> enqueued_reads;
 thread_local std::vector<std::pair<asio::const_buffer, std::function<void(void*)>>> enqueued_writes;
@@ -46,6 +48,7 @@ template <typename socket_t> asio::error_code read_enqueued(socket_t &socket) {
 }; // namespace rpc_buffer
 
 // region Utils
+namespace detail {
 asio::ip::tcp::socket rpc_try_connect(asio::io_context &ctx, const std::string &hostname, uint16_t port) {
   asio::ip::tcp::resolver resolver(ctx);
   asio::error_code ec;
@@ -62,7 +65,7 @@ asio::ip::tcp::socket rpc_try_connect(asio::io_context &ctx, const std::string &
       throw std::runtime_error("Failed to connect to " + hostname + ":" + std::to_string(port) + ": " + ec.message());
   }
 
-  return std::move(sock);
+  return sock;
 }
 
 types::ssl_socket_t rpc_try_connect(asio::io_context &ctx, const std::string &hostname,
@@ -78,8 +81,9 @@ types::ssl_socket_t rpc_try_connect(asio::io_context &ctx, const std::string &ho
         std::to_string(port) + ": " + ec.message());
     }
 
-    return std::move(ssl_sock);
+    return ssl_sock;
 }
+};
 // endregion
 
 // region Non-SSL definitions

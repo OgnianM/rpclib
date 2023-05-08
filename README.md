@@ -52,7 +52,7 @@ Optionally with SSL
 ```cpp
 auto endpoint = asio::ip::tcp::endpoint(asio::ip::tcp::v4(), 1234);
 asio::ssl::context ssl_ctx(asio::ssl::context::tlsv12);
-// Initialize your context here ...
+// Initialize your SSL context here ...
 rpc::service_provider<rpc::types::ssl_socket_t, hello_world_service> provider(endpoint, ssl_ctx, thread_count);
 provider.start();
 ```
@@ -72,7 +72,7 @@ Optionally with SSL
 asio::io_context io_ctx;
 // ...
 asio::ssl::context ssl_ctx(asio::ssl::context::tlsv12);
-// Initialize your context here ...
+// Initialize your SSL context here ...
 rpc::client<rpc::types::ssl_socket_t> client(io_ctx, "localhost", 1234, ssl_ctx);
 ```
 
@@ -83,7 +83,7 @@ std::cout << result.get() << '\n';
 The construction of the client may throw if it fails to connect. <br>
 `async_call` will never throw, any exceptions will be stored in the future object. <br>
 Any exceptions thrown by the remote service will be rethrown locally when calling `future::get()`. <br>
-Exceptions may also be generated when calling a non-existent function, invalid arguments, network errors, etc.
+Exceptions may also be generated when calling a non-existent function, passing invalid arguments, network errors, etc.
 
 Service:
 ```cpp
@@ -130,7 +130,7 @@ Note that the `str` must be kept alive until `std::future::get()` is called, oth
 
 
 <h2> Serialization and RPC buffers </h2>
-MsgPack is used for serialization, custom types being passsed as arguments/return values must have a packer/unpacker. <br>
+MsgPack is used for serialization, custom types being passed as arguments/return values must have a packer/unpacker. <br>
 The library provides a way to bypass serialization by using RPC buffers, which will be written directly to the socket. <br>
 Custom types must additionally provide a default constructor, a move constructor and a move assignment operator. <br>
 
@@ -138,11 +138,32 @@ Command buffers have a limited size (2^20 bytes == 1MiB), any large buffers shou
 
 An example custom type can be found in `example/File.h`
 
-`rpc::buffer::enqueue_write()` and `rpc::buffer::enqueue_read()` will write/read data to/from the socket, 
-the enqueued reads/writes will be executed once the packed message is passed.
+```cpp
+...
+template<typename Packer>
+void msgpack_pack(Packer &msgpack_pk) const {
+    msgpack::type::make_define_array(size, path).msgpack_pack(msgpack_pk);
+    if (data) {
+        rpc::buffer::enqueue_write(data, size);
+    }
+}
+void msgpack_unpack(msgpack::object const &msgpack_o) {
+    msgpack::type::make_define_array(size, path).msgpack_unpack(msgpack_o);
+    if (size) {
+        data = malloc(size);
+        if (data) {
+            rpc::buffer::enqueue_read(data, size);
+        }
+    }
+}
+...
+```
+
+`rpc::buffer::enqueue_read/write()` provide a way for the user to read/write directly to the socket. <br>
 
 Note that `rpc::buffer::euqneueue_write()` optionally takes a deallocator function:
 `void enqueue_write(void *ptr, uint32_t count, std::function<void(void *)> &&deleter = [](void*) {});`
 
 <h2> Example </h2>
+
 A full file transfer client/server example is provided in `example/ssl_file_transfer_client.cpp` and `examples/ssl_file_transfer_server.cpp` <br>

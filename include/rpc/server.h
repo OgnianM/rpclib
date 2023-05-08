@@ -1,16 +1,9 @@
 #pragma once
-#include "asio/error_code.hpp"
-#include "asio/ssl/context.hpp"
-#include "asio/ssl/stream_base.hpp"
-#include "asio/ssl/verify_mode.hpp"
 #include "common.h"
-#include <iostream>
-#include <thread>
-#include <unordered_map>
 
 namespace rpc {
 template <typename socket_t>
-struct server : protected rpc_base<socket_t>,
+struct server : protected detail::rpc_base<socket_t>,
                 public std::enable_shared_from_this<server<socket_t>> {
     /**
      * @brief Bind a function to the server
@@ -25,6 +18,8 @@ struct server : protected rpc_base<socket_t>,
      */
     template<typename F>
     void bind(const std::string &name, F &&f, void *this_ptr_ = nullptr) {
+        using namespace detail;
+
         if (this_ptr_ == nullptr) {
             this_ptr_ = this_ptr;
         }
@@ -150,10 +145,10 @@ struct server : protected rpc_base<socket_t>,
         return result;
     }
 
-    uint32_t get_command_buffer_size() const { return BUFFER_SIZE; }
+    uint32_t get_command_buffer_size() const { return COMMAND_BUFFER_SIZE; }
 
 protected:
-    server(socket_t &&socket_) : rpc_base<socket_t>(std::move(socket_)) { clear_bound(); }
+    server(socket_t &&socket_) : detail::rpc_base<socket_t>(std::move(socket_)) { clear_bound(); }
 
     void *this_ptr = this;
     std::unordered_map<std::string, std::shared_ptr<std::function<void(const std::string &)>>> functions;
@@ -175,7 +170,7 @@ protected:
             }
 
             try {
-                auto command = unpack_single<rpc_command>(this->buffer.data(), bytes_transferred);
+                auto command = detail::unpack_single<detail::rpc_command>(this->buffer.data(), bytes_transferred);
                 auto fn_ = functions.find(command.function);
 
                 if (fn_ != functions.end()) {
