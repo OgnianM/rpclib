@@ -10,8 +10,8 @@ A service is a class that inherits from the rpc::server class and implements cus
 Example:
 ```cpp
 template<typename socket_t>
-struct hello_world_service : rpc::server {
-    hello_world_service(socket_t&& socket) : rpc::server(socket) {
+struct hello_world_service : rpc::server<socket_t> {
+    hello_world_service(socket_t&& socket) : rpc::server(std::move(socket)) {
         this->bind("hello_world", &hello_world_service::hello_world);
     }
     
