@@ -8,19 +8,19 @@ namespace fs = std::filesystem;
 template<typename socket_t>
 struct FileService : rpc::server<socket_t> {
     FileService(socket_t&& sock) : rpc::server<socket_t>(std::move(sock)) {
-        this->bind("authenticate", &FileService::authenticate);
+        this->bind("authenticate", &FileService::authenticate, this);
     }
 
     bool authenticate(const std::string& password) {
         if (password == "1234") {
             this->clear_bound();
-            this->bind("ls", &FileService::ls);
-            this->bind("fsize", &FileService::fsize);
-            this->bind("get", &FileService::get);
-            this->bind("put", &FileService::put);
-            this->bind("cd", &FileService::cd);
-            this->bind("get_dir", &FileService::get_dir);
-            this->bind("pwd", &FileService::pwd);
+            this->bind("ls", &FileService::ls, this);
+            this->bind("fsize", &FileService::fsize, this);
+            this->bind("get", &FileService::get, this);
+            this->bind("put", &FileService::put, this);
+            this->bind("cd", &FileService::cd, this);
+            this->bind("get_dir", &FileService::get_dir, this);
+            this->bind("pwd", &FileService::pwd, this);
             return true;
         }
         return false;

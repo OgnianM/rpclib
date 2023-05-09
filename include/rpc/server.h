@@ -40,12 +40,7 @@ struct server : protected detail::rpc_base<socket_t>,
 
         functions[name] = std::make_shared<std::function<void(std::string const &)>>(
         [=, this](const std::string &packed_args) -> void {
-
-            // The bound function may change the contents of `functions`
-            // It may even deallocate itself, so keep a shared_ptr copy
-            // inside the function scope
-            auto self = functions[name];
-
+            rpc_result res;
 
             // This acts like a caller stack, only decayed types
             typename traits::decayed_parameter_tuple decayed_params;
@@ -56,16 +51,17 @@ struct server : protected detail::rpc_base<socket_t>,
             auto params = std::apply([]<typename... Ts>(Ts &&...args) ->
                     typename traits::parameter_tuple { return {args...}; }, decayed_params);
 
-            rpc_result res;
+
+            static auto function_call = [&]<typename... Ts>(Ts &&...args) {
+                if constexpr (is_member_function) {
+                    return (((typename traits::class_type *) this_ptr_)->*f)(std::forward<Ts &&>(args)...);
+                } else {
+                    return f(std::forward<Ts &&>(args)...);
+                }
+            };
 
             if constexpr (std::is_same_v<typename traits::return_type, void>) {
-                if constexpr (is_member_function) {
-                    std::apply([this_ptr_, f]<typename... Ts>(Ts &&...args) {
-                        (((typename traits::class_type *) this_ptr_)->*f)(std::forward<Ts &&>(args)...);
-                    }, params);
-                } else {
-                    std::apply(f, params);
-                }
+                std::apply(function_call, params);
 #ifdef RPC_ALLOW_LVALUE_REFS
                 pack_non_const_refs(params, res.lvalue_refs);
 #endif
@@ -74,17 +70,9 @@ struct server : protected detail::rpc_base<socket_t>,
                 this->write_enqueued();
             } else {
                 // Keep this alive until write_enqueued has finished, it may contain RPC buffers
-                auto invokation_result = [&]() {
-                    if constexpr (is_member_function) {
-                        return std::apply([this_ptr_, f]<typename... Ts>(Ts &&...args) {
-                            return (((typename traits::class_type *) this_ptr_)->*f)(std::forward<Ts &&>(args)...);
-                        }, params);
-                    } else {
-                        return std::apply(f, params);
-                    }
-                }();
+                auto invocation_result = std::apply(function_call, params);
 
-                res.return_value = pack_any(invokation_result);
+                res.return_value = pack_any(invocation_result);
 #ifdef RPC_ALLOW_LVALUE_REFS
                 pack_non_const_refs(params, res.lvalue_refs);
 #endif
@@ -92,7 +80,6 @@ struct server : protected detail::rpc_base<socket_t>,
                 this->write(result.data(), result.size());
                 this->write_enqueued();
             }
-
         });
     }
 
@@ -167,7 +154,8 @@ protected:
                 auto fn_ = functions.find(command.function);
 
                 if (fn_ != functions.end()) {
-                    (*fn_->second)(command.args);
+                    auto f = fn_->second;
+                    (*f)(command.args);
                 } else {
                     if (unknown_function_called) {
                         unknown_function_called(command.function, command.args);
