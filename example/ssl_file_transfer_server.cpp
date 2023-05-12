@@ -21,6 +21,7 @@ struct FileService : rpc::server<socket_t> {
             this->bind("cd", &FileService::cd, this);
             this->bind("get_dir", &FileService::get_dir, this);
             this->bind("pwd", &FileService::pwd, this);
+            this->bind("test", [](int& x) { x = 42; });
             return true;
         }
         return false;

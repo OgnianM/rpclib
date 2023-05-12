@@ -88,16 +88,85 @@ types::ssl_socket_t rpc_try_connect(asio::io_context &ctx, const std::string &ho
 };
 // endregion
 
+
+
 // region Non-SSL definitions
 template <> asio::error_code rpc_base<types::socket_t>::write_enqueued() { return buffer::write_enqueued(socket); }
 template <> asio::error_code rpc_base<types::socket_t>::read_enqueued() { return buffer::read_enqueued(socket); }
 template <> void rpc_base<types::socket_t>::destroy_socket() { this->socket.close(); }
+
+template <> asio::error_code rpc_base<types::socket_t>::write(void *buffer, uint32_t buffer_size) {
+    asio::error_code ec;
+    asio::write(socket, asio::buffer(&buffer_size, sizeof(buffer_size)), ec);
+    ASIO_ERROR_GUARD(ec, ec);
+    if (buffer_size > 0) {
+        asio::write(socket, asio::buffer(buffer, buffer_size), ec);
+        ASIO_ERROR_GUARD(ec, ec);
+    }
+    return {};
+}
+
+template<> void rpc_base<types::socket_t>::async_read(std::function<void(const asio::error_code &ec, std::size_t size)> &&f) {
+    async_read_bytecount([f = std::move(f), this]() {
+        if (message_size == uint32_t(-1)) { // -1 denotes an exception, read the exception
+            async_read([f = std::move(f), this](const asio::error_code &ec, std::size_t size) {
+                ASIO_ERROR_GUARD(ec);
+                remote_exception = std::make_unique<std::string>();
+                remote_exception->assign(buffer.data(), message_size);
+                f({}, 0);
+            });
+        } else if (message_size >= COMMAND_BUFFER_SIZE) {
+            send_exception("Requested buffer size is too long.");
+            return;
+        } else if (message_size > 0) {
+            asio::async_read(socket, asio::buffer(&buffer[0], message_size),
+                             asio::transfer_exactly(message_size), f);
+        } else {
+            RPC_MSG(RPC_DEBUG, "Received empty message");
+            f({}, 0);
+        }
+    });
+}
+
 // endregion
 
 // region SSL definitions
 template <> asio::error_code rpc_base<types::ssl_socket_t>::write_enqueued() { return buffer::write_enqueued(socket); }
 template <> asio::error_code rpc_base<types::ssl_socket_t>::read_enqueued() { return buffer::read_enqueued(socket); }
 template <> void rpc_base<types::ssl_socket_t>::destroy_socket() { this->socket.shutdown(); }
+template <> asio::error_code rpc_base<types::ssl_socket_t>::write(void *buffer, uint32_t buffer_size) {
+    asio::error_code ec;
+    asio::write(socket, asio::buffer(&buffer_size, sizeof(buffer_size)), ec);
+    ASIO_ERROR_GUARD(ec, ec);
+    if (buffer_size > 0) {
+        asio::write(socket, asio::buffer(buffer, buffer_size), ec);
+        ASIO_ERROR_GUARD(ec, ec);
+    }
+    return {};
+}
+
+template<> void rpc_base<types::ssl_socket_t>::async_read(std::function<void(const asio::error_code &ec, std::size_t size)> &&f) {
+    async_read_bytecount([f = std::move(f), this]() {
+        if (message_size == uint32_t(-1)) { // -1 denotes an exception, read the exception
+            async_read([f = std::move(f), this](const asio::error_code &ec, std::size_t size) {
+                ASIO_ERROR_GUARD(ec);
+                remote_exception = std::make_unique<std::string>();
+                remote_exception->assign(buffer.data(), message_size);
+                f({}, 0);
+            });
+        } else if (message_size >= COMMAND_BUFFER_SIZE) {
+            send_exception("Requested buffer size is too long.");
+            return;
+        } else if (message_size > 0) {
+            asio::async_read(socket, asio::buffer(&buffer[0], message_size),
+                             asio::transfer_exactly(message_size), f);
+        } else {
+            RPC_MSG(RPC_DEBUG, "Received empty message");
+            f({}, 0);
+        }
+    });
+}
+
 // endregion
 
 }; // namespace rpc

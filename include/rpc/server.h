@@ -47,7 +47,7 @@ struct server : protected detail::rpc_base<socket_t>,
             unpack_any(packed_args, decayed_params);
             this->read_enqueued();
 
-            // This acts like the callee's stack, elements may be references
+            // This acts like the callee stack, elements may be references
             auto params = std::apply([]<typename... Ts>(Ts &&...args) ->
                     typename traits::parameter_tuple { return {args...}; }, decayed_params);
 

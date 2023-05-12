@@ -49,6 +49,10 @@ int main(int argc, char **argv) {
                 auto file = client.async_call<File>("get", remote_path).get();
                 std::ofstream out(local_path, std::ios::trunc);
                 out.write((char*)file.data, file.size);
+            } else if (command == "test") {
+                int x = 0;
+                client.async_call<void>("test", x).get();
+                std::cout << "x = " << x << '\n';
             } else if (command == "get_dir") {
                 std::string remote_path, local_path_;
                 std::cin >> remote_path >> local_path_;
@@ -56,14 +60,13 @@ int main(int argc, char **argv) {
 
                 fs::path local_path = local_path_;
 
-                for (auto& f : file) {
-                    fs::create_directories((local_path/f.path).parent_path());
+                for (auto &f: file) {
+                    fs::create_directories((local_path / f.path).parent_path());
                     std::ofstream out(local_path / f.path, std::ios::trunc);
                     if (f.data) {
                         out.write((char *) f.data, f.size);
                     }
                 }
-
             } else if (command == "put") {
                 std::string remote_path, local_path;
                 std::cin >> local_path >> remote_path;
