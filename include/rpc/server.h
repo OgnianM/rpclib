@@ -13,8 +13,6 @@ struct server : protected detail::rpc_base<socket_t>,
      * @param f Function (or functor) pointer
      * @param this_ptr_ If the function is a member function, this is the pointer
      * to the object instance
-     * @note if this_ptr_ is a nullptr, rpc::server::this_ptr will be used for
-     * member functions, which can be set with rpc_server::set_this_ptr
      */
     template<typename F>
     void bind(const std::string &name, F &&f, void *this_ptr_ = nullptr) {
@@ -51,8 +49,7 @@ struct server : protected detail::rpc_base<socket_t>,
             auto params = std::apply([]<typename... Ts>(Ts &&...args) ->
                     typename traits::parameter_tuple { return {args...}; }, decayed_params);
 
-
-            static auto function_call = [&]<typename... Ts>(Ts &&...args) {
+            auto function_call = [this_ptr_, f]<typename... Ts>(Ts &&...args) {
                 if constexpr (is_member_function) {
                     return (((typename traits::class_type *) this_ptr_)->*f)(std::forward<Ts &&>(args)...);
                 } else {
@@ -114,7 +111,7 @@ struct server : protected detail::rpc_base<socket_t>,
 
     void destroy_server() { this->destroy_socket(); }
 
-    /// @return A vector of all functions accessible to the remote rpc_client
+    /// @return A vector of all functions accessible to the remote RPC client
     std::vector<std::string> get_bound_functions() const {
         std::vector<std::string> result;
         result.reserve(functions.size());
@@ -144,8 +141,8 @@ protected:
                 const asio::error_code &ec, std::size_t bytes_transferred) {
             ASIO_ERROR_GUARD(ec);
 
-            if (this->remote_exception) {
-                RPC_MSG(RPC_DEBUG, "Client sent an exception %s, closing connection.", this->remote_exception->c_str());
+            if (!this->remote_exception.empty()) {
+                RPC_MSG(RPC_DEBUG, "Client sent an exception %s, closing connection.", this->remote_exception.c_str());
                 return;
             }
 
@@ -154,8 +151,7 @@ protected:
                 auto fn_ = functions.find(command.function);
 
                 if (fn_ != functions.end()) {
-                    auto f = fn_->second;
-                    (*f)(command.args);
+                    (*fn_->second)(command.args);
                 } else {
                     if (unknown_function_called) {
                         unknown_function_called(command.function, command.args);

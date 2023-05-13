@@ -247,14 +247,14 @@ namespace buffer {
 * @param count bytes to write
 * @param deleter optional deleter for the buffer
 */
-    void enqueue_write(void *ptr, uint32_t count, std::function<void(void *)> &&deleter = [](void *) {});
+void enqueue_write(void *ptr, uint32_t count, std::function<void(void *)> &&deleter = [](void *) {});
 
 /**
 * @brief Enqueues a read on the current thread's read queue
 * @param ptr pointer to the buffer
 * @param count bytes to read
 */
-    void enqueue_read(void *ptr, uint32_t count);
+void enqueue_read(void *ptr, uint32_t count, std::function<void()> &&callback);
 }; // namespace rpc_buffer
 
 namespace detail {
@@ -277,7 +277,8 @@ asio::ip::tcp::socket rpc_try_connect(asio::io_context &ctx, const std::string &
 types::ssl_socket_t rpc_try_connect(asio::io_context &ctx, const std::string &hostname,
                                     uint16_t port, asio::ssl::context &ssl_ctx);
 
-template<typename socket_t>
+template<typename socket_t> requires(std::is_same_v<socket_t, types::socket_t> ||
+                                     std::is_same_v<socket_t, types::ssl_socket_t>)
 struct rpc_base {
     rpc_base(socket_t &&socket_) : socket(std::move(socket_)) {}
     rpc_base(const rpc_base &) = delete;
@@ -297,10 +298,9 @@ protected:
     void destroy_socket();
 
     asio::error_code write_enqueued();
-
     asio::error_code read_enqueued();
 
-    std::unique_ptr<std::string> remote_exception;
+    std::string remote_exception;
 
     void send_exception(const std::string &what) {
         uint32_t msize = -1;
@@ -311,6 +311,46 @@ protected:
     }
 
 private:
+    bool reading_exception = false;
+
+    void async_read_impl(std::function<void(const asio::error_code &ec, std::size_t size)> &&f) {
+        async_read_bytecount([f = std::move(f), this] {
+            if (message_size == uint32_t(-1)) { // -1 denotes an exception, read the exception
+                if (reading_exception) {
+                    RPC_MSG(RPC_ERROR, "Remote sent exception within exception, terminating connection.");
+                    return;
+                }
+                reading_exception = true;
+                async_read_impl([f = std::move(f), this](const asio::error_code &ec, std::size_t size) {
+                    ASIO_ERROR_GUARD(ec);
+                    remote_exception.assign(buffer.data(), message_size);
+                    reading_exception = false;
+                    f({}, 0);
+                });
+            } else if (message_size >= COMMAND_BUFFER_SIZE) {
+                send_exception("Requested buffer size is too long.");
+                return;
+            } else if (message_size > 0) {
+                asio::async_read(socket, asio::buffer(buffer.data(), message_size),
+                                 asio::transfer_exactly(message_size), f);
+            } else {
+                RPC_MSG(RPC_DEBUG, "Received empty message");
+                f({}, 0);
+            }
+        });
+    }
+
+    asio::error_code write_impl(void *buffer, uint32_t buffer_size) {
+        asio::error_code ec;
+        asio::write(socket, asio::buffer(&buffer_size, sizeof(buffer_size)), ec);
+        ASIO_ERROR_GUARD(ec, ec);
+        if (buffer_size > 0) {
+            asio::write(socket, asio::buffer(buffer, buffer_size), ec);
+            ASIO_ERROR_GUARD(ec, ec);
+        }
+        return {};
+    }
+
     /**
      * @brief The first function called in the async_read chain, gets the number of bytes to read
      * @param handler

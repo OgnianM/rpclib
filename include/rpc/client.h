@@ -15,6 +15,13 @@ template <typename socket_t> struct client : protected detail::rpc_base<socket_t
     client(asio::io_context &ctx, const std::string &hostname, uint16_t port, asio::ssl::context &ssl_ctx)
     requires(is_ssl) : detail::rpc_base<socket_t>(detail::rpc_try_connect(ctx, hostname, port, ssl_ctx)) {}
 
+    /**
+     * @brief Calls a function on the server
+     * @tparam Ret return type
+     * @tparam Args argument types
+     * @param function_name name of the function to call
+     * @param args arguments to pass to the function
+     */
     template<typename Ret, typename... Args>
     std::future<std::decay_t<Ret>> async_call(const std::string &function_name, Args &&...args) noexcept {
         return async_call_impl<std::decay_t<Ret>>(function_name, std::forward<Args &&>(args)...);
@@ -25,13 +32,6 @@ template <typename socket_t> struct client : protected detail::rpc_base<socket_t
     }
 
 private:
-    /**
-     * @brief Calls a function on the server
-     * @tparam Ret return type
-     * @tparam Args argument types
-     * @param function_name name of the function to call
-     * @param args arguments to pass to the function
-     */
     template<typename Ret, typename... Args>
     std::future<Ret> async_call_impl(const std::string& function_name, Args &&...args) noexcept {
         using namespace rpc::detail;
@@ -51,8 +51,6 @@ private:
         auto promise = std::make_shared<std::promise<Ret>>();
         auto future = promise->get_future();
 
-        // Lock when launching the async_read, unlock in the handler, once all the
-        // reading is done.
         this->async_read([this, arg_tuple = std::move(arg_tuple), promise = std::move(promise)]
                          (const asio::error_code &ec, std::size_t size) {
             try {
@@ -60,9 +58,9 @@ private:
                     throw std::runtime_error(ec.message());
                 }
 
-                if (this->remote_exception) {
+                if (!this->remote_exception.empty()) {
                     auto e = std::move(this->remote_exception);
-                    throw std::runtime_error("[SERVER] " + *e);
+                    throw std::runtime_error("[SERVER] " + e);
                 }
 
                 rpc_result result;
@@ -74,7 +72,6 @@ private:
 #ifdef RPC_ALLOW_LVALUE_REFS
                 unpack_non_const_refs(*arg_tuple, result.lvalue_refs);
 #endif
-
                 try {
                     if constexpr (!std::is_same_v<Ret, void>) {
                         auto return_value = unpack_single<Ret>(result.return_value.c_str(), result.return_value.size());
@@ -99,5 +96,4 @@ private:
         return future;
     }
 };
-
 }; // namespace rpc
