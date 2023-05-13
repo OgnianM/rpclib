@@ -253,8 +253,9 @@ void enqueue_write(void *ptr, uint32_t count, std::function<void(void *)> &&dele
 * @brief Enqueues a read on the current thread's read queue
 * @param ptr pointer to the buffer
 * @param count bytes to read
+* @param callback optional callback to call when the read is complete
 */
-void enqueue_read(void *ptr, uint32_t count, std::function<void()> &&callback);
+void enqueue_read(void *ptr, uint32_t count, std::function<void()> &&callback = []{});
 }; // namespace rpc_buffer
 
 namespace detail {

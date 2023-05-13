@@ -94,7 +94,6 @@ types::ssl_socket_t rpc_try_connect(asio::io_context &ctx, const std::string &ho
 template <> asio::error_code rpc_base<types::socket_t>::write_enqueued() { return buffer::write_enqueued(socket); }
 template <> asio::error_code rpc_base<types::socket_t>::read_enqueued() { return buffer::read_enqueued(socket); }
 template <> void rpc_base<types::socket_t>::destroy_socket() { this->socket.close(); }
-
 template <> asio::error_code rpc_base<types::socket_t>::write(void *buffer, uint32_t buffer_size) {
     return write_impl(buffer, buffer_size);
 }
