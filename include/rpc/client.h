@@ -10,10 +10,14 @@ template <typename socket_t> struct client : protected detail::rpc_base<socket_t
     using detail::rpc_base<socket_t>::rpc_base;
 
     client(asio::io_context &ctx, const std::string &hostname, uint16_t port)
-    requires(!is_ssl) : detail::rpc_base<socket_t>(detail::rpc_try_connect(ctx, hostname, port)) {}
+    requires(!is_ssl) : detail::rpc_base<socket_t>(detail::rpc_try_connect(ctx, hostname, port)) {
+        server_buffer_size = async_call<uint32_t>("exchange_buffer_sizes", COMMAND_BUFFER_SIZE).get();
+    }
 
     client(asio::io_context &ctx, const std::string &hostname, uint16_t port, asio::ssl::context &ssl_ctx)
-    requires(is_ssl) : detail::rpc_base<socket_t>(detail::rpc_try_connect(ctx, hostname, port, ssl_ctx)) {}
+    requires(is_ssl) : detail::rpc_base<socket_t>(detail::rpc_try_connect(ctx, hostname, port, ssl_ctx)) {
+        server_buffer_size = async_call<uint32_t>("exchange_buffer_sizes", COMMAND_BUFFER_SIZE).get();
+    }
 
     /**
      * @brief Calls a function on the server
@@ -21,20 +25,13 @@ template <typename socket_t> struct client : protected detail::rpc_base<socket_t
      * @tparam Args argument types
      * @param function_name name of the function to call
      * @param args arguments to pass to the function
+     * @return std::future<Ret> that will be fulfilled when the server responds
      */
     template<typename Ret, typename... Args>
-    std::future<std::decay_t<Ret>> async_call(const std::string &function_name, Args &&...args) noexcept {
-        return async_call_impl<std::decay_t<Ret>>(function_name, std::forward<Args &&>(args)...);
-    }
-
-    std::vector<std::string> get_functions() {
-        return async_call<std::vector<std::string>>("get_bound_functions").get();
-    }
-
-private:
-    template<typename Ret, typename... Args>
-    std::future<Ret> async_call_impl(const std::string& function_name, Args &&...args) noexcept {
+    std::future<Ret> async_call(const std::string& function_name, Args &&...args) noexcept {
         using namespace rpc::detail;
+        static_assert(!is_non_const_lvalue_ref<Ret>(), "cannot call functions that return non-const lvalue references");
+
         asio::error_code ec;
         rpc_command command { function_name, pack_any(std::forward<const Args &&>(args)...) };
 
@@ -43,6 +40,14 @@ private:
 #endif
 
         auto to_send = pack_any(command);
+        if (to_send.size() > server_buffer_size) {
+            std::promise<Ret> promise;
+            promise.set_exception(std::make_exception_ptr(
+                    std::runtime_error("rpc::client::async_call: command too large - " +
+                    std::to_string(to_send.size()) + " > " + std::to_string(server_buffer_size))));
+            return promise.get_future();
+        }
+
         ec = this->write(to_send.data(), to_send.size());
         ASIO_ERROR_GUARD(ec, {});
         ec = this->write_enqueued();
@@ -52,11 +57,9 @@ private:
         auto future = promise->get_future();
 
         this->async_read([this, arg_tuple = std::move(arg_tuple), promise = std::move(promise)]
-                         (const asio::error_code &ec, std::size_t size) {
+                                 (const asio::error_code &ec, std::size_t size) {
             try {
-                if (ec) {
-                    throw std::runtime_error(ec.message());
-                }
+                if (ec) throw std::runtime_error(ec.message());
 
                 if (!this->remote_exception.empty()) {
                     auto e = std::move(this->remote_exception);
@@ -95,5 +98,13 @@ private:
         });
         return future;
     }
+
+    /// @return The functions bound on the remote host
+    std::vector<std::string> get_functions() {
+        return async_call<std::vector<std::string>>("get_bound_functions").get();
+    }
+
+private:
+    uint32_t server_buffer_size;
 };
 }; // namespace rpc

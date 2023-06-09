@@ -63,6 +63,9 @@ struct server : protected detail::rpc_base<socket_t>,
                 pack_non_const_refs(params, res.lvalue_refs);
 #endif
                 auto result = pack_any(res);
+                if (result.size() > this->client_buffer_size) {
+                    throw std::runtime_error("Result size is larger than client buffer size");
+                }
                 this->write(result.data(), result.size());
                 this->write_enqueued();
             } else {
@@ -74,6 +77,11 @@ struct server : protected detail::rpc_base<socket_t>,
                 pack_non_const_refs(params, res.lvalue_refs);
 #endif
                 auto result = pack_any(res);
+
+                if (result.size() > this->client_buffer_size) {
+                    throw std::runtime_error("Result size is larger than client buffer size");
+                }
+
                 this->write(result.data(), result.size());
                 this->write_enqueued();
             }
@@ -96,7 +104,7 @@ struct server : protected detail::rpc_base<socket_t>,
     void clear_bound() {
         functions.clear();
         bind("get_bound_functions", &server::get_bound_functions, this);
-        bind("get_command_buffer_size", &server::get_command_buffer_size, this);
+        bind("exchange_buffer_sizes", &server::exchange_buffer_sizes, this);
     }
 
     void erase_bound(const std::string &name) { functions.erase(name); }
@@ -123,7 +131,10 @@ struct server : protected detail::rpc_base<socket_t>,
         return result;
     }
 
-    uint32_t get_command_buffer_size() const { return COMMAND_BUFFER_SIZE; }
+    uint32_t exchange_buffer_sizes(uint32_t client_buffer_size) {
+        this->client_buffer_size = client_buffer_size;
+        return COMMAND_BUFFER_SIZE;
+    }
 
 protected:
     server(socket_t &&socket_) : detail::rpc_base<socket_t>(std::move(socket_)) { clear_bound(); }
@@ -165,6 +176,9 @@ protected:
             listen_for_commands(this_shared);
         });
     }
+
+
+    uint32_t client_buffer_size = 0;
 };
 
 }; // namespace rpc

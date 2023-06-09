@@ -10,6 +10,8 @@ option(RPC_ALLOW_LVALUE_REFS "Allow lvalue references to be used as arguments fo
 option(BUILD_EXAMPLES "Build examples" ON)
 option(MSGPACK_USE_BOOST "Use boost for msgpack" OFF)
 
+set(MSGPACK_BUILD_DOCS OFF)
+
 add_subdirectory(external/msgpack)
 
 target_include_directories(rpclib PUBLIC external/asio/asio/include)

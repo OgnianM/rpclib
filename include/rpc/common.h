@@ -328,7 +328,7 @@ private:
                     reading_exception = false;
                     f({}, 0);
                 });
-            } else if (message_size >= COMMAND_BUFFER_SIZE) {
+            } else if (message_size > COMMAND_BUFFER_SIZE) {
                 send_exception("Requested buffer size is too long.");
                 return;
             } else if (message_size > 0) {

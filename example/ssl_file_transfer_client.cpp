@@ -50,8 +50,8 @@ int main(int argc, char **argv) {
                 std::ofstream out(local_path, std::ios::trunc);
                 out.write((char*)file.data, file.size);
             } else if (command == "test") {
-                int x = 0;
-                client.async_call<void>("test", x).get();
+                std::string x;
+                client.async_call<void>("test", std::move(x)).get();
                 std::cout << "x = " << x << '\n';
             } else if (command == "get_dir") {
                 std::string remote_path, local_path_;
@@ -86,6 +86,13 @@ int main(int argc, char **argv) {
                 std::cout << client.async_call<int>("fsize", path).get() << '\n';
             } else if (command == "pwd") {
                 std::cout << client.async_call<std::string>("pwd").get() << '\n';
+            } else if (command == "test_big") {
+                std::string big_str;
+                big_str.reserve(10000000);
+                for (int i = 0; i < 10000000; ++i) {
+                    big_str.push_back("./"[(i % 2)]);
+                }
+                std::cout << client.async_call<std::string>("cd", big_str).get() << '\n';
             } else if (command == "help") {
                 std::cout << "ls - list files\n"
                              "cd [dir] - change directory\n"
