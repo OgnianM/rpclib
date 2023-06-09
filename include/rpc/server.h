@@ -3,8 +3,8 @@
 
 namespace rpc {
 template <typename socket_t>
-struct server : protected detail::rpc_base<socket_t>,
-                public std::enable_shared_from_this<server<socket_t>> {
+struct server : public detail::rpc_base<socket_t>,
+                private std::enable_shared_from_this<server<socket_t>> {
     /**
      * @brief Bind a function to the server
      * @tparam F the function type to be called on remote invocation
@@ -92,8 +92,7 @@ struct server : protected detail::rpc_base<socket_t>,
      * @param callback The function to call if the client calls an unknown function
      * @note if this function is not provided, the server will throw an exception back to the client
      */
-    void set_unknown_function_called_callback(
-            const std::function<void(const std::string &funcs,const std::string &args)> &callback) {
+    void on_unknown_function(const std::function<void(const std::string &funcs,const std::string &args)> &callback) {
         unknown_function_called = callback;
     }
 
@@ -139,9 +138,6 @@ struct server : protected detail::rpc_base<socket_t>,
 protected:
     server(socket_t &&socket_) : detail::rpc_base<socket_t>(std::move(socket_)) { clear_bound(); }
 
-    std::unordered_map<std::string, std::shared_ptr<std::function<void(const std::string &)>>> functions;
-    std::function<void(const std::string &, const std::string &)> unknown_function_called;
-
     /**
      * @brief Listens for commands from the remote rpc_client
      * @param this_shared A shared_ptr to this object, at least one such ptr will
@@ -177,7 +173,8 @@ protected:
         });
     }
 
-
+    std::unordered_map<std::string, std::shared_ptr<std::function<void(const std::string &)>>> functions;
+    std::function<void(const std::string &, const std::string &)> unknown_function_called;
     uint32_t client_buffer_size = 0;
 };
 

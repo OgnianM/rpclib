@@ -11,6 +11,10 @@ struct FileService : rpc::server<socket_t> {
         this->bind("authenticate", &FileService::authenticate, this);
     }
 
+    ~FileService() {
+        std::cout << "FileService destroyed" << std::endl;
+    }
+
     bool authenticate(const std::string& password) {
         if (password == "1234") {
             this->clear_bound();
@@ -81,6 +85,11 @@ int main() {
     auto ep = asio::ip::tcp::endpoint(asio::ip::tcp::v4(), 1234);
 
     rpc::service_provider<rpc::types::ssl_socket_t, FileService> service_provider(ep, ssl_ctx);
+
+    service_provider.on_service_created([](std::shared_ptr<FileService<rpc::types::ssl_socket_t>>& service) {
+        const auto& endpoint = service.get()->get_socket().lowest_layer().remote_endpoint();
+        std::cout << "Connection established from " << endpoint.address() << ':' << endpoint.port() << std::endl;
+    });
     service_provider.start();
 
     std::string input;

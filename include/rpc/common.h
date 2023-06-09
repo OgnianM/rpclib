@@ -285,23 +285,17 @@ struct rpc_base {
     rpc_base(const rpc_base &) = delete;
     rpc_base(rpc_base &&) = default;
 
+    [[nodiscard]] inline socket_t& get_socket() {
+        return socket;
+    }
+
 protected:
 
     void async_read(std::function<void(const asio::error_code &ec, std::size_t size)> &&f);
     asio::error_code write(void *buffer, uint32_t buffer_size);
 
-
-    std::array<char, COMMAND_BUFFER_SIZE> buffer;
-
-    socket_t socket;
-    uint32_t message_size;
-
-    void destroy_socket();
-
     asio::error_code write_enqueued();
     asio::error_code read_enqueued();
-
-    std::string remote_exception;
 
     void send_exception(const std::string &what) {
         uint32_t msize = -1;
@@ -311,6 +305,12 @@ protected:
         asio::write(socket, asio::buffer(what.data(), msize), asio::transfer_all());
     }
 
+    void destroy_socket();
+
+    std::array<char, COMMAND_BUFFER_SIZE> buffer;
+    socket_t socket;
+    uint32_t message_size;
+    std::string remote_exception;
 private:
     bool reading_exception = false;
 

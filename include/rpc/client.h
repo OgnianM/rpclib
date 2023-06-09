@@ -105,6 +105,6 @@ template <typename socket_t> struct client : protected detail::rpc_base<socket_t
     }
 
 private:
-    uint32_t server_buffer_size;
+    uint32_t server_buffer_size = COMMAND_BUFFER_SIZE;
 };
 }; // namespace rpc

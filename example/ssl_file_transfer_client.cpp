@@ -20,6 +20,13 @@ int main(int argc, char **argv) {
 
     rpc::client<rpc::types::ssl_socket_t> client(io_ctx, argv[1], std::stoi(argv[2]), ssl_ctx);
 
+
+    std::vector<decltype(client)> v;
+
+    for (int i  = 0; i < 100; i++) {
+        v.emplace_back(io_ctx, argv[1], std::stoi(argv[2]), ssl_ctx);
+    }
+
     if (!client.async_call<bool>("authenticate", std::string(argv[3])).get()) {
         std::cout << "Authentication failed\n";
         io_ctx.stop();
