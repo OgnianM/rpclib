@@ -24,6 +24,7 @@ int main(int argc, char **argv) {
     std::vector<decltype(client)> v;
 
     for (int i  = 0; i < 100; i++) {
+        std::cout << i <<'\n';
         v.emplace_back(io_ctx, argv[1], std::stoi(argv[2]), ssl_ctx);
     }
 

@@ -63,7 +63,7 @@ struct server : public detail::rpc_base<socket_t>,
                 pack_non_const_refs(params, res.lvalue_refs);
 #endif
                 auto result = pack_any(res);
-                if (result.size() > this->client_buffer_size) {
+                if (result.size() > COMMAND_BUFFER_SIZE) {
                     throw std::runtime_error("Result size is larger than client buffer size");
                 }
                 this->write(result.data(), result.size());
@@ -78,7 +78,7 @@ struct server : public detail::rpc_base<socket_t>,
 #endif
                 auto result = pack_any(res);
 
-                if (result.size() > this->client_buffer_size) {
+                if (result.size() > COMMAND_BUFFER_SIZE) {
                     throw std::runtime_error("Result size is larger than client buffer size");
                 }
 
@@ -103,7 +103,6 @@ struct server : public detail::rpc_base<socket_t>,
     void clear_bound() {
         functions.clear();
         bind("get_bound_functions", &server::get_bound_functions, this);
-        bind("exchange_buffer_sizes", &server::exchange_buffer_sizes, this);
     }
 
     void erase_bound(const std::string &name) { functions.erase(name); }
@@ -128,11 +127,6 @@ struct server : public detail::rpc_base<socket_t>,
         }
 
         return result;
-    }
-
-    uint32_t exchange_buffer_sizes(uint32_t client_buffer_size) {
-        this->client_buffer_size = client_buffer_size;
-        return COMMAND_BUFFER_SIZE;
     }
 
 protected:
@@ -175,7 +169,6 @@ protected:
 
     std::unordered_map<std::string, std::shared_ptr<std::function<void(const std::string &)>>> functions;
     std::function<void(const std::string &, const std::string &)> unknown_function_called;
-    uint32_t client_buffer_size = 0;
 };
 
 }; // namespace rpc

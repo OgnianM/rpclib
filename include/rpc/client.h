@@ -10,14 +10,10 @@ template <typename socket_t> struct client : protected detail::rpc_base<socket_t
     using detail::rpc_base<socket_t>::rpc_base;
 
     client(asio::io_context &ctx, const std::string &hostname, uint16_t port)
-    requires(!is_ssl) : detail::rpc_base<socket_t>(detail::rpc_try_connect(ctx, hostname, port)) {
-        server_buffer_size = async_call<uint32_t>("exchange_buffer_sizes", COMMAND_BUFFER_SIZE).get();
-    }
+    requires(!is_ssl) : detail::rpc_base<socket_t>(detail::rpc_try_connect(ctx, hostname, port)) {}
 
     client(asio::io_context &ctx, const std::string &hostname, uint16_t port, asio::ssl::context &ssl_ctx)
-    requires(is_ssl) : detail::rpc_base<socket_t>(detail::rpc_try_connect(ctx, hostname, port, ssl_ctx)) {
-        server_buffer_size = async_call<uint32_t>("exchange_buffer_sizes", COMMAND_BUFFER_SIZE).get();
-    }
+    requires(is_ssl) : detail::rpc_base<socket_t>(detail::rpc_try_connect(ctx, hostname, port, ssl_ctx)) {}
 
     /**
      * @brief Calls a function on the server
@@ -40,11 +36,11 @@ template <typename socket_t> struct client : protected detail::rpc_base<socket_t
 #endif
 
         auto to_send = pack_any(command);
-        if (to_send.size() > server_buffer_size) {
+        if (to_send.size() > COMMAND_BUFFER_SIZE) {
             std::promise<Ret> promise;
             promise.set_exception(std::make_exception_ptr(
                     std::runtime_error("rpc::client::async_call: command too large - " +
-                    std::to_string(to_send.size()) + " > " + std::to_string(server_buffer_size))));
+                    std::to_string(to_send.size()) + " > " + std::to_string(COMMAND_BUFFER_SIZE))));
             return promise.get_future();
         }
 
@@ -103,8 +99,5 @@ template <typename socket_t> struct client : protected detail::rpc_base<socket_t
     std::vector<std::string> get_functions() {
         return async_call<std::vector<std::string>>("get_bound_functions").get();
     }
-
-private:
-    uint32_t server_buffer_size = COMMAND_BUFFER_SIZE;
 };
 }; // namespace rpc

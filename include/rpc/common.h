@@ -35,10 +35,12 @@ inline void rpc_msg(FILE *type, const char *msg, ...) {
     }                                                                          \
   } while (0);
 
-#define COMMAND_BUFFER_SIZE (1 << 20)
 
 
 namespace rpc {
+
+constexpr size_t COMMAND_BUFFER_SIZE = (1 << 20);
+
 namespace types {
     typedef asio::ip::tcp::socket socket_t;
     typedef asio::ssl::stream<asio::ip::tcp::socket> ssl_socket_t;
