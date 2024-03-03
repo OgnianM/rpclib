@@ -24,7 +24,7 @@ template <typename socket_t> struct client : protected detail::rpc_base<socket_t
      * @return std::future<Ret> that will be fulfilled when the server responds
      */
     template<typename Ret, typename... Args>
-    std::future<Ret> async_call(const std::string& function_name, Args &&...args) noexcept {
+    std::future<Ret> async_call(const std::string& function_name, Args &&...args) {
         using namespace rpc::detail;
         static_assert(!is_non_const_lvalue_ref<Ret>(), "cannot call functions that return non-const lvalue references");
 
@@ -44,10 +44,8 @@ template <typename socket_t> struct client : protected detail::rpc_base<socket_t
             return promise.get_future();
         }
 
-        ec = this->write(to_send.data(), to_send.size());
-        ASIO_ERROR_GUARD(ec, {});
-        ec = this->write_enqueued();
-        ASIO_ERROR_GUARD(ec, {});
+        this->write(to_send.data(), to_send.size());
+        this->write_enqueued();
 
         auto promise = std::make_shared<std::promise<Ret>>();
         auto future = promise->get_future();

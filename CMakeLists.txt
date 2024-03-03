@@ -1,23 +1,23 @@
-cmake_minimum_required(VERSION 3.26)
+cmake_minimum_required(VERSION 3.25)
 project(rpclib)
 
-set(CMAKE_CXX_STANDARD 20)
-
-add_library(rpclib SHARED include/rpc/common.h include/rpc/client.h include/rpc/server.h
+add_library(rpclib STATIC include/rpc/common.h include/rpc/client.h include/rpc/server.h
         include/rpc/rpc_impl.cpp include/rpc/service_provider.h)
 
+target_compile_features(rpclib PUBLIC cxx_std_20)
+
 option(RPC_ALLOW_LVALUE_REFS "Allow lvalue references to be used as arguments for remote calls" ON)
-option(BUILD_EXAMPLES "Build examples" ON)
+option(BUILD_EXAMPLES "Build examples" OFF)
 option(MSGPACK_USE_BOOST "Use boost for msgpack" OFF)
 
 set(MSGPACK_BUILD_DOCS OFF)
 
 add_subdirectory(external/msgpack)
 
-target_include_directories(rpclib PUBLIC external/asio/asio/include)
-target_include_directories(rpclib PUBLIC external/msgpack/include)
+set(RPCLIB_INCLUDE_DIRS external/asio/asio/include external/msgpack/include include/)
+target_include_directories(rpclib PUBLIC ${RPCLIB_INCLUDE_DIRS})
 
-target_link_libraries(rpclib PUBLIC msgpackc ssl crypto)
+target_link_libraries(rpclib PUBLIC msgpack-cxx ssl crypto)
 
 if (RPC_ALLOW_LVALUE_REFS)
     target_compile_definitions(rpclib PUBLIC RPC_ALLOW_LVALUE_REFS)

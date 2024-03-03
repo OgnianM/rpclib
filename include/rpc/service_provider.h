@@ -23,8 +23,7 @@ struct declare_ssl_context<types::ssl_socket_t> {
  * rather, owned by the remote client.
  */
 template <typename socket_t, template <typename> typename EntrypointService_>
-requires((std::is_same_v<socket_t, rpc::types::socket_t> || std::is_same_v<socket_t, rpc::types::ssl_socket_t>) &&
-          std::is_base_of_v<rpc::server<socket_t>, EntrypointService_<socket_t>>)
+requires(std::is_base_of_v<rpc::server<socket_t>, EntrypointService_<socket_t>>)
 struct service_provider : detail::declare_ssl_context<socket_t> {
     using EntrypointService = EntrypointService_<socket_t>;
     static constexpr bool is_ssl = std::is_same_v<socket_t, rpc::types::ssl_socket_t>;
@@ -52,7 +51,16 @@ struct service_provider : detail::declare_ssl_context<socket_t> {
 
         io_threads.reserve(threads);
         for (int i = 0; i < threads; i++) {
-            io_threads.template emplace_back([this] { ctx.run(); });
+            io_threads.template emplace_back([this] {
+                while (true) {
+                    try {
+                        ctx.run();
+                        break;
+                    } catch (asio::error_code& e) {
+                        RPC_MSG(RPC_INFO, "ASIO error in service_provider thread: %s", e.message().c_str());
+                    }
+                }
+            });
         }
     }
 

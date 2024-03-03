@@ -26,14 +26,7 @@ inline void rpc_msg(FILE *type, const char *msg, ...) {
 #define ASIO_ERROR RPC_ERROR
 #endif
 
-#define ASIO_ERROR_GUARD(ec, ...)                                              \
-  do {                                                                         \
-    if (ec) {                                                                  \
-      RPC_MSG(ASIO_ERROR, " File " __FILE__ "  Line: %i: %s",        \
-               __LINE__, ec.message().c_str());                                 \
-      return __VA_ARGS__;                                                      \
-    }                                                                          \
-  } while (0);
+#define ASIO_ERROR_GUARD(ec) do { auto error = ec; if (error) throw error; } while (0);
 
 
 
@@ -142,8 +135,7 @@ void pack_non_const_refs(tuple_t &t, std::vector<std::string> &packed) {
 * @param unpacked resultant tuple
 */
 template<typename... Args>
-void unpack_any(const char *packed, size_t packed_size,
-                std::tuple<Args...> &unpacked) {
+void unpack_any(const char *packed, size_t packed_size, std::tuple<Args...> &unpacked) {
     auto tmp = msgpack::unpack(packed, packed_size);
     if constexpr (sizeof...(Args) == 1) {
         std::get<0>(unpacked) =
@@ -164,6 +156,7 @@ std::tuple<Args...> unpack_any(std::string const &packed) {
     std::tuple<Args...> result;
     unpack_any(packed, result);
     return result;
+
 }
 
 template<typename... Args>
@@ -268,7 +261,25 @@ namespace detail {
 * @return If the connection was successful, a populated
 * std::optional<socket_t>, otherwise an empty std::optional<socket_t>
 */
-asio::ip::tcp::socket rpc_try_connect(asio::io_context &ctx, const std::string &hostname, uint16_t port);
+template<typename Executor>
+asio::ip::tcp::socket rpc_try_connect(Executor &ctx, const std::string &hostname, uint16_t port) {
+    asio::ip::tcp::resolver resolver(ctx);
+    asio::error_code ec;
+    auto ep = resolver.resolve(hostname, std::to_string(port), ec);
+
+    if (ec) {
+        throw std::runtime_error("Failed to resolve hostname: " + ec.message());
+    }
+
+    asio::ip::tcp::socket sock(ctx);
+    asio::connect(sock, ep, ec);
+
+    if (ec) {
+        throw std::runtime_error("Failed to connect to " + hostname + ":" + std::to_string(port) + ": " + ec.message());
+    }
+
+    return sock;
+}
 
 /**
 * @brief Tries to connect to a remote host
@@ -277,11 +288,24 @@ asio::ip::tcp::socket rpc_try_connect(asio::io_context &ctx, const std::string &
 * @return If the connection was successful, a populated
 * std::optional<socket_t>, otherwise an empty std::optional<socket_t>
 */
-types::ssl_socket_t rpc_try_connect(asio::io_context &ctx, const std::string &hostname,
-                                    uint16_t port, asio::ssl::context &ssl_ctx);
+template<typename Executor>
+types::ssl_socket_t rpc_try_connect(Executor &ctx, const std::string &hostname,
+                                    uint16_t port, asio::ssl::context &ssl_ctx) {
+    auto sock_ = rpc_try_connect(ctx, hostname, port);
 
-template<typename socket_t> requires(std::is_same_v<socket_t, types::socket_t> ||
-                                     std::is_same_v<socket_t, types::ssl_socket_t>)
+    asio::error_code ec;
+    types::ssl_socket_t ssl_sock(std::move(sock_), ssl_ctx);
+    ssl_sock.handshake(asio::ssl::stream_base::handshake_type::client, ec);
+
+    if (ec) {
+        throw std::runtime_error("Failed to handshake with " + hostname + ":" +
+                                 std::to_string(port) + ": " + ec.message());
+    }
+
+    return ssl_sock;
+}
+
+template<typename socket_t>
 struct rpc_base {
     rpc_base(socket_t &&socket_) : socket(std::move(socket_)) {}
     rpc_base(const rpc_base &) = delete;
@@ -294,10 +318,10 @@ struct rpc_base {
 protected:
 
     void async_read(std::function<void(const asio::error_code &ec, std::size_t size)> &&f);
-    asio::error_code write(void *buffer, uint32_t buffer_size);
+    void write(void *buffer, uint32_t buffer_size);
 
-    asio::error_code write_enqueued();
-    asio::error_code read_enqueued();
+    void write_enqueued();
+    void read_enqueued();
 
     void send_exception(const std::string &what) {
         uint32_t msize = -1;
@@ -316,7 +340,7 @@ protected:
 private:
     bool reading_exception = false;
 
-    void async_read_impl(std::function<void(const asio::error_code &ec, std::size_t size)> &&f) {
+    void async_read_impl(std::function<void(const asio::error_code &ec, std::size_t size)> f) {
         async_read_bytecount([f = std::move(f), this] {
             if (message_size == uint32_t(-1)) { // -1 denotes an exception, read the exception
                 if (reading_exception) {
@@ -326,11 +350,11 @@ private:
                 reading_exception = true;
                 async_read_impl([f = std::move(f), this](const asio::error_code &ec, std::size_t size) {
                     ASIO_ERROR_GUARD(ec);
-                    remote_exception.assign(buffer.data(), message_size);
+                    remote_exception.assign(buffer.data(), size);
                     reading_exception = false;
                     f({}, 0);
                 });
-            } else if (message_size > COMMAND_BUFFER_SIZE) {
+            } else if (message_size >= COMMAND_BUFFER_SIZE) {
                 send_exception("Requested buffer size is too long.");
                 return;
             } else if (message_size > 0) {
@@ -343,22 +367,21 @@ private:
         });
     }
 
-    asio::error_code write_impl(void *buffer, uint32_t buffer_size) {
+    void write_impl(void *buffer, uint32_t buffer_size) {
         asio::error_code ec;
         asio::write(socket, asio::buffer(&buffer_size, sizeof(buffer_size)), ec);
-        ASIO_ERROR_GUARD(ec, ec);
+        ASIO_ERROR_GUARD(ec);
         if (buffer_size > 0) {
             asio::write(socket, asio::buffer(buffer, buffer_size), ec);
-            ASIO_ERROR_GUARD(ec, ec);
+            ASIO_ERROR_GUARD(ec);
         }
-        return {};
     }
 
     /**
      * @brief The first function called in the async_read chain, gets the number of bytes to read
      * @param handler
      */
-    void async_read_bytecount(std::function<void()> &&handler) {
+    void async_read_bytecount(std::function<void()> handler) {
         asio::async_read(socket, asio::mutable_buffer(&message_size, sizeof(message_size)),
                          [handler = std::move(handler)](const asio::error_code &ec, std::size_t bytes_transferred) {
                              // Check if stream is truncated

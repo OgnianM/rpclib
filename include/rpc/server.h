@@ -17,32 +17,32 @@ struct server : public detail::rpc_base<socket_t>,
     template<typename F>
     void bind(const std::string &name, F &&f, void *this_ptr_ = nullptr) {
         using namespace detail;
-
         using traits = function_traits<F>;
-        constexpr bool is_member_function = std::is_member_function_pointer_v<F>;
-
-        if constexpr (is_member_function) {
+        if constexpr (std::is_member_function_pointer_v<F>) {
             if (this_ptr_ == nullptr) {
                 throw std::runtime_error("this_ptr cannot be nullptr for member functions");
             }
         }
-
 #ifndef RPC_ALLOW_LVALUE_REFS
         static_assert(!has_non_const_lvalue_refs<typename traits::parameter_tuple>(),
             "Binding functions with non-const lvalue reference arguments is disabled "
             "you can enable it by defining RPC_ALLOW_LVALUE_REFS");
 #endif
-
         static_assert(!is_non_const_lvalue_ref<typename traits::return_type>(),
                       "cannot bind functions that return non-const lvalue references");
 
         functions[name] = std::make_shared<std::function<void(std::string const &)>>(
         [=, this](const std::string &packed_args) -> void {
+            auto self = functions[name];
             rpc_result res;
 
             // This acts like a caller stack, only decayed types
             typename traits::decayed_parameter_tuple decayed_params;
-            unpack_any(packed_args, decayed_params);
+            try {
+                unpack_any(packed_args, decayed_params);
+            } catch (std::exception& e) {
+                throw std::runtime_error("Error unpacking arguments " + packed_args + ": " + e.what());
+            }
             this->read_enqueued();
 
             // This acts like the callee stack, elements may be references
@@ -50,7 +50,7 @@ struct server : public detail::rpc_base<socket_t>,
                     typename traits::parameter_tuple { return {args...}; }, decayed_params);
 
             auto function_call = [this_ptr_, f]<typename... Ts>(Ts &&...args) {
-                if constexpr (is_member_function) {
+                if constexpr (std::is_member_function_pointer_v<F>) {
                     return (((typename traits::class_type *) this_ptr_)->*f)(std::forward<Ts &&>(args)...);
                 } else {
                     return f(std::forward<Ts &&>(args)...);
@@ -160,7 +160,7 @@ protected:
                         throw std::runtime_error("Unknown function called");
                     }
                 }
-            } catch (std::exception &e) {
+            } catch (std::exception& e) {
                 this->send_exception(e.what());
             }
             listen_for_commands(this_shared);
