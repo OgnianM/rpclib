@@ -44,7 +44,6 @@ struct service_provider : detail::declare_ssl_context<socket_t> {
 
     ~service_provider() { ctx.stop(); }
 
-
     void start(size_t threads = 2) {
         RPC_MSG(RPC_INFO, "Starting server on port %u with %u thread(s)", acceptor.local_endpoint().port(), threads);
         accept();
@@ -63,15 +62,10 @@ struct service_provider : detail::declare_ssl_context<socket_t> {
             });
         }
     }
-
-    void on_service_created(std::function<void(std::shared_ptr<EntrypointService> &)> callback) {
-        on_service_created_callback = callback;
-    }
-
     [[nodiscard]] asio::io_context &get_context() { return ctx; }
     [[nodiscard]] asio::ssl::context &get_ssl_context() requires(is_ssl) { return this->ssl_context; }
 
-
+    std::function<void(std::shared_ptr<EntrypointService> &)> on_service_created_callback;
 private:
     void accept() {
         acceptor.async_accept([this](asio::error_code ec, asio::ip::tcp::socket peer) {
@@ -98,7 +92,6 @@ private:
         });
     }
 
-    std::function<void(std::shared_ptr<EntrypointService> &)> on_service_created_callback;
     asio::io_context ctx;
     asio::ip::tcp::acceptor acceptor;
     std::vector<std::jthread> io_threads;

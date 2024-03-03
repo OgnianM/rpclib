@@ -28,7 +28,6 @@ template <typename socket_t> struct client : protected detail::rpc_base<socket_t
         using namespace rpc::detail;
         static_assert(!is_non_const_lvalue_ref<Ret>(), "cannot call functions that return non-const lvalue references");
 
-        asio::error_code ec;
         rpc_command command { function_name, pack_any(std::forward<const Args &&>(args)...) };
 
 #ifdef RPC_ALLOW_LVALUE_REFS
