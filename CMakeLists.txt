@@ -1,8 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 project(rpclib)
 
-add_library(rpclib STATIC include/rpc/common.h include/rpc/client.h include/rpc/server.h
-        include/rpc/rpc_impl.cpp include/rpc/service_provider.h)
+add_library(rpclib STATIC include/rpc/node.h src/node.cpp)
 
 target_compile_features(rpclib PUBLIC cxx_std_20)
 
