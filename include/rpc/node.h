@@ -6,9 +6,6 @@
 #include <asio.hpp>
 #include <msgpack.hpp>
 
-using namespace asio::ip;
-
-
 #define ASIO_ERROR_GUARD(ec) do { auto error = ec; if (error) throw error; } while (0);
 
 namespace rpc {
@@ -61,19 +58,19 @@ struct function_traits : public function_traits<decltype(&std::remove_reference_
 
 
 template<typename T>
-constexpr bool is_non_const_lvalue_ref() {
+constexpr bool is_lvalue_ref() {
     return std::is_lvalue_reference_v<T> && !std::is_const_v<std::remove_reference_t<T>>;
 }
 
 template<typename tuple_t, int idx = 0>
-constexpr bool has_non_const_lvalue_refs() {
+constexpr bool has_lvalue_refs() {
     if constexpr (idx == std::tuple_size_v<tuple_t>) {
         return false;
     } else {
-        if constexpr (is_non_const_lvalue_ref<std::tuple_element_t<idx, tuple_t>>()) {
+        if constexpr (is_lvalue_ref<std::tuple_element_t<idx, tuple_t>>()) {
             return true;
         } else {
-            return has_non_const_lvalue_refs<tuple_t, idx + 1>();
+            return has_lvalue_refs<tuple_t, idx + 1>();
         }
     }
 }
@@ -99,7 +96,7 @@ std::string pack_any(Args &&...any) {
 template<typename tuple_t, int idx = 0>
 void pack_lvalue_refs(tuple_t &t, std::vector<std::string> &packed) {
     if constexpr (idx < std::tuple_size_v<tuple_t>) {
-        if constexpr (is_non_const_lvalue_ref<std::tuple_element_t<idx, tuple_t>>()) {
+        if constexpr (is_lvalue_ref<std::tuple_element_t<idx, tuple_t>>()) {
             packed.emplace_back(pack_any(std::get<idx>(t)));
         } else packed.emplace_back();
         pack_lvalue_refs<tuple_t, idx + 1>(t, packed);
@@ -160,14 +157,14 @@ T unpack_single(const char *packed, size_t packed_size) {
 }
 
 template<typename tuple_t, int idx = 0>
-void unpack_non_const_refs(tuple_t &t, std::vector<std::string> &packed) {
+void unpack_lvalue_refs(tuple_t &t, std::vector<std::string> &packed) {
     if constexpr (idx < std::tuple_size_v<tuple_t>) {
-        if constexpr (is_non_const_lvalue_ref<std::tuple_element_t<idx, tuple_t>>()) {
+        if constexpr (is_lvalue_ref<std::tuple_element_t<idx, tuple_t>>()) {
             if (idx < packed.size() && !packed[idx].empty()) {
                 msgpack::unpack(packed[idx].c_str(), packed[idx].size()).get().convert(std::get<idx>(t));
             }
         }
-        unpack_non_const_refs<tuple_t, idx + 1>(t, packed);
+        unpack_lvalue_refs<tuple_t, idx + 1>(t, packed);
     }
 }
 
@@ -281,7 +278,7 @@ struct rpc_frame {
     FrameType type;
 };
 
-struct node : std::enable_shared_from_this<node> {
+struct node {
     using handle = std::shared_ptr<node>;
 
     template<typename T>
@@ -343,14 +340,13 @@ struct node : std::enable_shared_from_this<node> {
      */
     template<typename F>
     void bind(const std::string &name, F &&f, void *this_ptr_ = nullptr) {
-        using namespace detail;
         using traits = function_traits<F>;
         if constexpr (std::is_member_function_pointer_v<F>) {
             if (this_ptr_ == nullptr) {
                 throw std::runtime_error("this_ptr cannot be nullptr for member functions");
             }
         }
-        static_assert(!is_non_const_lvalue_ref<typename traits::return_type>(),
+        static_assert(!is_lvalue_ref<typename traits::return_type>(),
                       "cannot bind functions that return non-const lvalue references");
 
         functions[name] = std::make_shared<std::function<void(uint32_t uid, std::string &)>>(
@@ -403,7 +399,7 @@ struct node : std::enable_shared_from_this<node> {
      */
     template<typename Ret, typename... Args>
     std::future<Ret> async_call(const std::string& function_name, Args &&...args) {
-        static_assert(!is_non_const_lvalue_ref<Ret>(), "cannot call functions that return non-const lvalue references");
+        static_assert(!is_lvalue_ref<Ret>(), "cannot call functions that return non-const lvalue references");
 
         auto arg_tuple = std::make_shared<std::tuple<Args &&...>>(std::forward<Args &&>(args)...);
         auto promise = std::make_shared<std::promise<Ret>>();
@@ -414,7 +410,7 @@ struct node : std::enable_shared_from_this<node> {
         {
             try {
                 rpc_result result = unpack_single<rpc_result>(this->buffer.data(), frame.size);
-                unpack_non_const_refs(*arg_tuple, result.lvalue_refs);
+                unpack_lvalue_refs(*arg_tuple, result.lvalue_refs);
                 if constexpr (!std::is_same_v<Ret, void>) {
                     auto return_value = unpack_single<Ret>(result.return_value.c_str(), result.return_value.size());
                     this->read_enqueued();

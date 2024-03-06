@@ -110,12 +110,14 @@ void node::read_enqueued() {
 }
 
 void node::send_exception(const std::string &what) {
+    std::lock_guard<std::mutex> lock(mutex);
     rpc_frame frame{.size = static_cast<uint32_t>(what.size()), .type = FrameType::EXCEPTION};
     socket->write(asio::buffer(&frame, sizeof(frame)));
     socket->write(asio::const_buffer(what.c_str(), what.size()));
 }
 
 void node::send_command(const std::string &function, const std::string &args, std::function<void()> result_handler) {
+    std::lock_guard<std::mutex> lock(mutex);
     auto uid = next_uid++;
     rpc_command bincmd {.uid = uid, .function = function, .args = args};
     auto command = pack_any(bincmd);
@@ -127,6 +129,7 @@ void node::send_command(const std::string &function, const std::string &args, st
 }
 
 void node::send_result(const rpc::rpc_result &result) {
+    std::lock_guard<std::mutex> lock(mutex);
     auto packed = pack_any(result);
     rpc_frame frame{.size = static_cast<uint32_t>(packed.size()), .type = FrameType::RESULT};
     socket->write(asio::buffer(&frame, sizeof(frame)));
@@ -135,6 +138,7 @@ void node::send_result(const rpc::rpc_result &result) {
 }
 
 void node::process_frame() {
+    std::lock_guard<std::mutex> lock(mutex);
     switch (frame.type) {
         case FrameType::COMMAND: {
             auto command = unpack_single<rpc_command>(buffer.data(), frame.size);
