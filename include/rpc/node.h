@@ -232,6 +232,7 @@ struct ISocket {
     virtual void async_read(const asio::mutable_buffer& buffer, std::function<void(const asio::error_code&, std::size_t)> handler) = 0;
 
     virtual void close() = 0;
+    virtual bool is_open() = 0;
 
     virtual asio::ip::tcp::socket& lowest_layer() = 0;
 };
@@ -245,6 +246,7 @@ struct BasicSocket : ISocket {
     void async_read(const asio::mutable_buffer& buffer, std::function<void(const asio::error_code&, std::size_t)> handler) override;
 
     void close() override;
+    bool is_open() override;
 
     asio::ip::tcp::socket& lowest_layer() override;
 
@@ -260,6 +262,7 @@ struct SSLSocket : ISocket {
     void async_read(const asio::mutable_buffer& buffer, std::function<void(const asio::error_code&, std::size_t)> handler) override;
 
     void close() override;
+    bool is_open() override;
 
     asio::ip::tcp::socket& lowest_layer() override;
 
@@ -267,7 +270,7 @@ struct SSLSocket : ISocket {
 };
 
 
-enum class FrameType : uint32_t {
+enum class frame_type : uint32_t {
     COMMAND,
     RESULT,
     EXCEPTION
@@ -275,7 +278,7 @@ enum class FrameType : uint32_t {
 
 struct rpc_frame {
     uint32_t size;
-    FrameType type;
+    frame_type type;
 };
 
 struct node {
@@ -298,7 +301,7 @@ struct node {
         }
 
         // Clients are externally managed, thus they do not contain a shared_ptr to themselves in their read loop
-        result->async_read_frame(nullptr);
+        result->async_read_frame(result);
         return result;
     }
 
@@ -322,6 +325,7 @@ struct node {
     void send_command(const std::string& function, const std::string& args, std::function<void()> result_handler = []{});
     void send_result(const rpc_result& result);
     void process_frame();
+    void stop();
 
     /**
      * @brief The first function called in the async_read chain, gets the number of bytes to read and the type of transfer
@@ -406,8 +410,7 @@ struct node {
         auto future = promise->get_future();
 
         send_command(function_name, pack_any(std::forward<const Args &&>(args)...),
-                     [this, arg_tuple = std::move(arg_tuple), promise = std::move(promise)]
-        {
+                     [this, arg_tuple = std::move(arg_tuple), promise = std::move(promise)] {
             try {
                 rpc_result result = unpack_single<rpc_result>(this->buffer.data(), frame.size);
                 unpack_lvalue_refs(*arg_tuple, result.lvalue_refs);
@@ -425,26 +428,25 @@ struct node {
         return future;
     }
 
-
     std::unordered_map<uint32_t, std::function<void()>> pending_results;
     std::unordered_map<std::string, std::shared_ptr<std::function<void(uint32_t, std::string&)>>> functions;
     std::vector<char> buffer;
     ISocket* socket;
     rpc_frame frame;
-    std::mutex mutex;
+    std::recursive_mutex mutex;
     uint32_t next_uid = 0;
 };
 
 
 
 namespace detail {
-    template<typename socket_t> struct declare_ssl_context {};
+template<typename socket_t> struct declare_ssl_context {};
 
-    template<>
-    struct declare_ssl_context<types::ssl_socket_t> {
-        declare_ssl_context(asio::ssl::context &ctx) : ssl_context(std::move(ctx)) {}
-        asio::ssl::context ssl_context;
-    };
+template<>
+struct declare_ssl_context<types::ssl_socket_t> {
+    declare_ssl_context(asio::ssl::context &ctx) : ssl_context(std::move(ctx)) {}
+    asio::ssl::context ssl_context;
+};
 };
 
 /**
@@ -485,12 +487,13 @@ struct service_provider : detail::declare_ssl_context<socket_t> {
 
         io_threads.reserve(threads);
         for (int i = 0; i < threads; i++) {
-            io_threads.template emplace_back([this] {
+            io_threads.emplace_back([this] {
                 while (true) {
                     try {
                         ctx.run();
                         break;
                     } catch (asio::error_code& e) {
+                        std::cerr << "Error in service_provider: " << e.message() << std::endl;
                     }
                 }
             });

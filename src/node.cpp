@@ -47,6 +47,10 @@ void BasicSocket::close() {
     ASIO_ERROR_GUARD(ec);
 }
 
+bool BasicSocket::is_open() {
+    return this->socket.is_open();
+}
+
 asio::ip::tcp::socket &BasicSocket::lowest_layer() {
     return this->socket;
 }
@@ -77,6 +81,11 @@ void SSLSocket::close() {
     ASIO_ERROR_GUARD(ec);
 }
 
+bool SSLSocket::is_open() {
+    return this->socket.lowest_layer().is_open();
+}
+
+
 asio::ip::tcp::socket &SSLSocket::lowest_layer() {
     return this->socket.next_layer();
 }
@@ -86,7 +95,11 @@ node::node(rpc::ISocket *socket_) : socket(socket_) {
     buffer.resize(COMMAND_BUFFER_SIZE);
 }
 
-node::~node() { if(socket) delete socket; }
+node::~node() {
+    if(socket) {
+        stop();
+    }
+}
 
 void node::write_enqueued() {
     for (auto &[buffer, deleter]: enqueued_writes) {
@@ -110,18 +123,20 @@ void node::read_enqueued() {
 }
 
 void node::send_exception(const std::string &what) {
-    std::lock_guard<std::mutex> lock(mutex);
-    rpc_frame frame{.size = static_cast<uint32_t>(what.size()), .type = FrameType::EXCEPTION};
+    std::lock_guard lock(mutex);
+    if (!socket->is_open()) return;
+    rpc_frame frame{.size = static_cast<uint32_t>(what.size()), .type = frame_type::EXCEPTION};
     socket->write(asio::buffer(&frame, sizeof(frame)));
     socket->write(asio::const_buffer(what.c_str(), what.size()));
 }
 
 void node::send_command(const std::string &function, const std::string &args, std::function<void()> result_handler) {
-    std::lock_guard<std::mutex> lock(mutex);
+    std::lock_guard lock(mutex);
+    if (!socket->is_open()) return;
     auto uid = next_uid++;
     rpc_command bincmd {.uid = uid, .function = function, .args = args};
     auto command = pack_any(bincmd);
-    rpc_frame frame{.size = static_cast<uint32_t>(command.size()), .type = FrameType::COMMAND};
+    rpc_frame frame{.size = static_cast<uint32_t>(command.size()), .type = frame_type::COMMAND};
     pending_results[uid] = std::move(result_handler);
     socket->write(asio::buffer(&frame, sizeof(frame)));
     socket->write(asio::const_buffer(command.data(), command.size()));
@@ -129,18 +144,20 @@ void node::send_command(const std::string &function, const std::string &args, st
 }
 
 void node::send_result(const rpc::rpc_result &result) {
-    std::lock_guard<std::mutex> lock(mutex);
+    std::lock_guard lock(mutex);
+    if (!socket->is_open()) return;
     auto packed = pack_any(result);
-    rpc_frame frame{.size = static_cast<uint32_t>(packed.size()), .type = FrameType::RESULT};
+    rpc_frame frame{.size = static_cast<uint32_t>(packed.size()), .type = frame_type::RESULT};
     socket->write(asio::buffer(&frame, sizeof(frame)));
     socket->write(asio::const_buffer(packed.data(), packed.size()));
     this->write_enqueued();
 }
 
 void node::process_frame() {
-    std::lock_guard<std::mutex> lock(mutex);
+    std::lock_guard lock(mutex);
+    if (!socket->is_open()) return;
     switch (frame.type) {
-        case FrameType::COMMAND: {
+        case frame_type::COMMAND: {
             auto command = unpack_single<rpc_command>(buffer.data(), frame.size);
             auto it = functions.find(command.function);
             if (it != functions.end()) {
@@ -154,7 +171,7 @@ void node::process_frame() {
             }
             break;
         }
-        case FrameType::RESULT: {
+        case frame_type::RESULT: {
             auto result = unpack_single<rpc_result>(buffer.data(), frame.size);
 
             auto it = pending_results.find(result.uid);
@@ -167,12 +184,19 @@ void node::process_frame() {
 
             break;
         }
-        case FrameType::EXCEPTION: {
+        case frame_type::EXCEPTION: {
             throw std::runtime_error("[Peer exception] " + std::string(buffer.data(), frame.size));
         }
 
         default:
             send_exception("Unknown frame type.");
+    }
+}
+
+void node::stop() {
+    std::lock_guard lock(mutex);
+    if (socket->is_open()) {
+        socket->close();
     }
 }
 
