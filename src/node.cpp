@@ -154,7 +154,7 @@ void node::send_result(const rpc::rpc_result &result) {
 }
 
 void node::process_frame() {
-    std::lock_guard lock(mutex);
+    std::unique_lock lock(mutex);
     if (!socket->is_open()) return;
     switch (frame.type) {
         case frame_type::COMMAND: {
@@ -162,7 +162,9 @@ void node::process_frame() {
             auto it = functions.find(command.function);
             if (it != functions.end()) {
                 try {
+                    lock.unlock();
                     (*it->second)(command.uid, command.args);
+                    lock.lock();
                 } catch (std::exception &e) {
                     send_exception(e.what());
                 }
