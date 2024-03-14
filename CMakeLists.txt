@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.22)
 project(rpclib)
 
-add_library(rpclib STATIC include/rpc/node.h src/node.cpp)
+add_library(rpclib SHARED include/rpc/node.h src/node.cpp)
 
 target_compile_features(rpclib PUBLIC cxx_std_20)
 
