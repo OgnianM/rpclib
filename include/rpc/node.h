@@ -502,7 +502,7 @@ struct service_provider : detail::declare_ssl_context<socket_t> {
     [[nodiscard]] asio::io_context &get_context() { return ctx; }
     [[nodiscard]] asio::ssl::context &get_ssl_context() requires(is_ssl) { return this->ssl_context; }
 
-    std::function<void(std::shared_ptr<node> &)> on_service_created_callback;
+    std::function<void(std::shared_ptr<EntrypointService> &)> on_service_created_callback;
 private:
     void accept() {
         acceptor.async_accept([this](asio::error_code ec, asio::ip::tcp::socket peer) {
@@ -511,7 +511,7 @@ private:
             // We can enqueue another async_accept, before processing the new connection.
             accept();
 
-            std::shared_ptr<node> svc;
+            std::shared_ptr<EntrypointService> svc;
             if constexpr (is_ssl) {
                 // SSL handshake
                 rpc::types::ssl_socket_t sock(std::move(peer), this->ssl_context);
