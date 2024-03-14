@@ -304,8 +304,9 @@ struct node {
         return result;
     }
 
-    template<typename T> requires(std::is_base_of_v<node, T>)
+    template<typename T>
     static std::shared_ptr<T> create(ISocket* socket) {
+        static_assert(std::is_base_of_v<node, T>, "T must be derived from rpc::node");
         auto result = std::make_shared<T>(socket);
         // Servers are internally managed, thus they contain a shared_ptr to themselves in their read loop
         result->async_read_frame(result);
@@ -445,6 +446,7 @@ template<>
 struct declare_ssl_context<types::ssl_socket_t> {
     declare_ssl_context(asio::ssl::context &ctx) : ssl_context(std::move(ctx)) {}
     asio::ssl::context ssl_context;
+    [[nodiscard]] asio::ssl::context &get_ssl_context() { return this->ssl_context; }
 };
 };
 
@@ -456,23 +458,16 @@ struct declare_ssl_context<types::ssl_socket_t> {
  * EntrypointService_ objects it creates, they are considered self-managed, or
  * rather, owned by the remote client.
  */
-template <typename socket_t, typename EntrypointService> requires(std::is_base_of_v<node, EntrypointService>)
+template <typename socket_t, typename EntrypointService>
 struct service_provider : detail::declare_ssl_context<socket_t> {
+    static_assert(std::is_base_of_v<node, EntrypointService>, "EntrypointService must be derived from rpc::node");
     static constexpr bool is_ssl = std::is_same_v<socket_t, rpc::types::ssl_socket_t>;
 
     /**
      * @brief Non-SSL constructor
      * @param ep The endpoint to bind to
      */
-    explicit service_provider(const asio::ip::tcp::endpoint &ep) requires(!is_ssl) : acceptor(ctx, ep) {}
-
-    /**
-     * @brief SSL constructor
-     * @param ep The endpoint to bind to
-     * @param ssl_ctx SSL context
-     */
-    service_provider(const asio::ip::tcp::endpoint &ep, asio::ssl::context &ssl_ctx) requires(is_ssl)
-            : detail::declare_ssl_context<socket_t>(ssl_ctx), acceptor(ctx, ep) {}
+    explicit service_provider(const asio::ip::tcp::endpoint &ep) : acceptor(ctx, ep) { }
 
     ~service_provider() {
         ctx.stop();
@@ -499,7 +494,6 @@ struct service_provider : detail::declare_ssl_context<socket_t> {
         }
     }
     [[nodiscard]] asio::io_context &get_context() { return ctx; }
-    [[nodiscard]] asio::ssl::context &get_ssl_context() requires(is_ssl) { return this->ssl_context; }
 
     std::function<void(std::shared_ptr<EntrypointService> &)> on_service_created_callback;
 private:
