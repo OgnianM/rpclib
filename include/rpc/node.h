@@ -115,8 +115,7 @@ template<typename... Args>
 void unpack_any(const char *packed, size_t packed_size, std::tuple<Args...> &unpacked) {
     auto tmp = msgpack::unpack(packed, packed_size);
     if constexpr (sizeof...(Args) == 1) {
-        std::get<0>(unpacked) =
-                tmp.get().as<std::decay_t<decltype(std::get<0>(unpacked))>>();
+        tmp.get().convert(std::get<0>(unpacked));
     } else {
         tmp.get().convert(unpacked);
     }
