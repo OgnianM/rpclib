@@ -2,8 +2,8 @@ cmake_minimum_required(VERSION 3.22)
 project(rpclib)
 
 set(CMAKE_CXX_STANDARD 17)
-
-add_library(rpclib SHARED include/rpc/node.h src/node.cpp)
+set(CMAKE_CXX_FLAGS "-fPIC")
+add_library(rpclib STATIC include/rpc/node.h src/node.cpp)
 
 option(RPC_ALLOW_LVALUE_REFS "Allow lvalue references to be used as arguments for remote calls" ON)
 option(BUILD_EXAMPLES "Build examples" OFF)
