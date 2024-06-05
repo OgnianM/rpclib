@@ -315,7 +315,6 @@ struct node {
 
     node(ISocket* socket_);
     node(const node &) = delete;
-    node(node &&) = default;
     ~node();
 
     void write_enqueued();
