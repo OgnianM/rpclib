@@ -1,6 +1,5 @@
 #include <rpc/node.hpp>
 
-
 /**
  * @brief A server with example functions
  */
@@ -17,12 +16,6 @@ struct basic_server : rpc::node {
         bind("echo", [](std::string msg) {
             return msg;
         });
-
-        // Free functions
-        //bind("malloc", malloc);
-        //bind("open", open);
-        //bind("read", read);
-        //bind("write", write);
     }
 
     int add(int a, int b) {
@@ -100,9 +93,12 @@ int main() {
 
     client->bind("client_function", [](int value) {
         std::cout << "Client function called with value: " << value << std::endl;
+        return value + 1;
     });
 
-    service_instance->async_call<void>("client_function", 42).get();
+    auto client_result = service_instance->async_call<int>("client_function", 42).get();
+    std::cout << "Client returned: " << client_result << std::endl;
+
 
 
     context.stop();
