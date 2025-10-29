@@ -33,7 +33,6 @@ struct basic_server : rpc::node {
 
 
 int main() {
-
     // ASIO-specific stuff
     asio::io_context context;
     // work guard
@@ -57,12 +56,11 @@ int main() {
     };
 
 
-
     /// !CLIENT SPECIFIC STUFF!
 
     // Connect to the service_provider
     auto client = rpc::node::connect(context.get_executor(), asio::ip::tcp::endpoint(
-        asio::ip::make_address("127.0.0.1"), 12345));
+                                         asio::ip::make_address("127.0.0.1"), 12345));
 
     // This executes asynchronously on the remote, returns a future
     auto result = client->async_call<int>("add", 5, 10).get();
@@ -72,7 +70,8 @@ int main() {
     auto exception_future = client->async_call<std::vector<int>>("exception");
     try {
         exception_future.get();
-    } catch (rpc::peer_exception& e) {
+    }
+    catch (rpc::peer_exception& e) {
         std::cout << "Caught remote exception: " << e.what() << std::endl;
     }
     /// @note The connection is still valid after the exception gets handled
@@ -84,7 +83,8 @@ int main() {
     auto invalid_future = client->async_call<int>("non_existing_function");
     try {
         invalid_future.get();
-    } catch (rpc::peer_exception &e) {
+    }
+    catch (rpc::peer_exception& e) {
         std::cout << "Caught remote exception for invalid function: " << e.what() << std::endl;
     }
 
@@ -98,7 +98,6 @@ int main() {
 
     auto client_result = service_instance->async_call<int>("client_function", 42).get();
     std::cout << "Client returned: " << client_result << std::endl;
-
 
 
     context.stop();
