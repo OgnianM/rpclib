@@ -3,7 +3,7 @@ project(rpclib)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_FLAGS "-fPIC")
-add_library(rpclib STATIC include/rpc/node.h src/node.cpp)
+add_library(rpclib STATIC include/rpc/node.hpp src/node.cpp)
 
 option(RPC_ALLOW_LVALUE_REFS "Allow lvalue references to be used as arguments for remote calls" ON)
 option(BUILD_EXAMPLES "Build examples" OFF)
@@ -24,12 +24,7 @@ endif()
 
 
 if (BUILD_EXAMPLES)
-    add_executable(example_server example/File.h example/ssl_file_transfer_server.cpp)
-    add_executable(example_client example/File.h example/ssl_file_transfer_client.cpp)
-
-    target_link_libraries(example_server rpclib)
-    target_link_libraries(example_client rpclib)
-
-    target_include_directories(example_server PUBLIC include)
-    target_include_directories(example_client PUBLIC include)
+    add_executable(basic_client_server example/basic_client_server.cpp)
+    target_link_libraries(basic_client_server rpclib)
+    target_include_directories(basic_client_server PUBLIC include)
 endif()

@@ -475,33 +475,13 @@ struct service_provider : detail::declare_ssl_context<socket_t> {
 
     /**
      * @brief Non-SSL constructor
+     * @param context The io_context to use
      * @param ep The endpoint to bind to
      */
-    explicit service_provider(const asio::ip::tcp::endpoint &ep) : acceptor(ctx, ep) { }
+    service_provider(asio::io_context& context, const asio::ip::tcp::endpoint &ep) : ctx(context), acceptor(ctx, ep) { }
 
-    ~service_provider() {
-        ctx.stop();
-        for (auto &t : io_threads) {
-            t.join();
-        }
-    }
-
-    void start(size_t threads = 1) {
+    void start() {
         accept();
-
-        io_threads.reserve(threads);
-        for (int i = 0; i < threads; i++) {
-            io_threads.emplace_back([this] {
-                while (true) {
-                    try {
-                        ctx.run();
-                        break;
-                    } catch (asio::error_code& e) {
-                        std::cerr << "Error in service_provider: " << e.message() << std::endl;
-                    }
-                }
-            });
-        }
     }
     [[nodiscard]] asio::io_context &get_context() { return ctx; }
 
@@ -532,8 +512,7 @@ private:
         });
     }
 
-    asio::io_context ctx;
+    asio::io_context& ctx;
     asio::ip::tcp::acceptor acceptor;
-    std::vector<std::thread> io_threads;
 };
 }; // namespace rpc
