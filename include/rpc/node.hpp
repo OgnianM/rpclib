@@ -172,25 +172,28 @@ void unpack_lvalue_refs(tuple_t &t, std::vector<std::string> &packed) {
 * arguments
 */
 struct rpc_command {
-    uint32_t uid;
     /// The function name
     std::string function;
     /// The packed arguments
     std::string args;
 
-    MSGPACK_DEFINE (uid, function, args);
+    MSGPACK_DEFINE (function, args);
 };
 
 /**
 * @brief A generic representation of a remote function call response
 */
 struct rpc_result {
-    uint32_t uid;
     /// The packed return value
     std::string return_value;
     /// The packed non-constant reference arguments
     std::vector<std::string> lvalue_refs;
-    MSGPACK_DEFINE (uid, return_value, lvalue_refs);
+    MSGPACK_DEFINE (return_value, lvalue_refs);
+};
+
+/// @brief Distinct type representing an exception thrown by the remote peer
+struct peer_exception : std::runtime_error {
+    using std::runtime_error::runtime_error;
 };
 
 /**
@@ -276,6 +279,7 @@ enum class frame_type : uint32_t {
 };
 
 struct rpc_frame {
+    uint32_t uid;
     uint32_t size;
     frame_type type;
 };
@@ -283,20 +287,19 @@ struct rpc_frame {
 struct node {
     using handle = std::shared_ptr<node>;
 
-    template<typename T>
-    static std::shared_ptr<T> connect(asio::any_io_executor ctx,
+    static std::shared_ptr<node> connect(asio::any_io_executor ctx,
                                       const asio::ip::tcp::endpoint &ep,
                                       std::optional<asio::ssl::context> ssl_ctx = std::nullopt) {
         asio::ip::tcp::socket sock(ctx);
         sock.connect(ep);
 
-        std::shared_ptr<T> result;
+        std::shared_ptr<node> result;
         if (ssl_ctx) {
             asio::ssl::stream<asio::ip::tcp::socket> ssl_sock(std::move(sock), *ssl_ctx);
             ssl_sock.handshake(asio::ssl::stream_base::handshake_type::client);
-            result = std::make_shared<T>(new SSLSocket(ssl_sock));
+            result = std::make_shared<node>(new SSLSocket(ssl_sock));
         } else {
-            result = std::make_shared<T>(new BasicSocket(sock));
+            result = std::make_shared<node>(new BasicSocket(sock));
         }
 
         // Clients are externally managed, thus they do not contain a shared_ptr to themselves in their read loop
@@ -320,15 +323,14 @@ struct node {
     void write_enqueued();
     void read_enqueued();
 
-    void send_exception(const std::string &what);
+    void send_exception(uint32_t uid, const std::string& ex);
     void send_command(const std::string& function, const std::string& args, std::function<void()> result_handler = []{});
-    void send_result(const rpc_result& result);
+    void send_result(uint32_t uid, const rpc_result& result);
     void process_frame();
     void stop();
 
     /**
      * @brief The first function called in the async_read chain, gets the number of bytes to read and the type of transfer
-     * @param handler
      */
     void async_read_frame(handle self);
 
@@ -355,7 +357,7 @@ struct node {
         functions[name] = std::make_shared<std::function<void(uint32_t uid, std::string &)>>(
         [=, this](uint32_t uid, std::string &packed_args) -> void {
             auto self = functions[name];
-            rpc_result res { .uid = uid };
+            rpc_result res;
 
             // This acts like a caller stack, only decayed types
             typename traits::decayed_parameter_tuple decayed_params;
@@ -381,13 +383,13 @@ struct node {
             if constexpr (std::is_same_v<typename traits::return_type, void>) {
                 std::apply(function_call, params);
                 pack_lvalue_refs(params, res.lvalue_refs);
-                send_result(res);
+                send_result(uid, res);
             } else {
                 // Keep this alive until write_enqueued has finished, it may contain RPC buffers
                 auto invocation_result = std::apply(function_call, params);
                 res.return_value = pack_any(invocation_result);
                 pack_lvalue_refs(params, res.lvalue_refs);
-                send_result(res);
+                send_result(uid, res);
             }
         });
     }
@@ -410,6 +412,15 @@ struct node {
 
         send_command(function_name, pack_any(std::forward<const Args &&>(args)...),
                      [this, arg_tuple = std::move(arg_tuple), promise = std::move(promise)] {
+            if (frame.type == frame_type::EXCEPTION) {
+                try {
+                    auto ex = unpack_single<std::string>(this->buffer.data(), frame.size);
+                    throw peer_exception(ex);
+                } catch(...) {
+                    promise->set_exception(std::current_exception());
+                    return;
+                }
+            }
             try {
                 rpc_result result = unpack_single<rpc_result>(this->buffer.data(), frame.size);
                 unpack_lvalue_refs(*arg_tuple, result.lvalue_refs);
@@ -452,7 +463,7 @@ struct declare_ssl_context<types::ssl_socket_t> {
 /**
  * @brief An abstraction over a basic acceptor, creates services for incoming connections
  * @tparam socket_t type of socket to use (either types::socket_t or types::ssl_socket_t)
- * @tparam EntrypointService_ A class derived from rpc::server, which will be used to handle incoming connections.
+ * @tparam EntrypointService_ A class derived from rpc::node, which will be used to handle incoming connections.
  * @note The service provider does not keep track of the
  * EntrypointService_ objects it creates, they are considered self-managed, or
  * rather, owned by the remote client.

@@ -1,4 +1,4 @@
-#include <rpc/client.h>
+#include <rpc/node.hpp>
 #include "File.h"
 #include <filesystem>
 #include <thread>
@@ -12,6 +12,7 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    /*
     asio::ssl::context ssl_ctx(asio::ssl::context::tlsv12);
     asio::io_context io_ctx(1);
     asio::executor_work_guard<decltype(io_ctx.get_executor())> work{io_ctx.get_executor()};
@@ -28,11 +29,23 @@ int main(int argc, char **argv) {
         v.emplace_back(io_ctx, argv[1], std::stoi(argv[2]), ssl_ctx);
     }
 
-    if (!client.async_call<bool>("authenticate", std::string(argv[3])).get()) {
+    if (!client->async_call<bool>("authenticate", std::string(argv[3])).get()) {
         std::cout << "Authentication failed\n";
         io_ctx.stop();
         return 1;
-    }
+    }*/
+
+    asio::io_context context;
+    // work guard
+    asio::executor_work_guard<decltype(context.get_executor())> work{context.get_executor()};
+
+    std::thread io_thread([&context]() {
+        context.run();
+    });
+
+    asio::ip::tcp::endpoint endpoint(asio::ip::make_address(argv[1]), std::stoi(argv[2]));
+    auto client = rpc::node::connect(context.get_executor(), endpoint);
+    
 
     while (true) {
         std::string command;
@@ -43,28 +56,28 @@ int main(int argc, char **argv) {
 
         try {
             if (command == "ls") {
-                auto files = client.async_call<std::vector<std::string>>("ls").get();
+                auto files = client->async_call<std::vector<std::string>>("ls").get();
                 for (auto &i: files) {
                     std::cout << "-> " << i << '\n';
                 }
             } else if (command == "cd") {
                 std::string path;
                 std::cin >> path;
-                client.async_call<void>("cd", path).get();
+                client->async_call<void>("cd", path).get();
             } else if (command == "get") {
                 std::string remote_path, local_path;
                 std::cin >> remote_path >> local_path;
-                auto file = client.async_call<File>("get", remote_path).get();
+                auto file = client->async_call<File>("get", remote_path).get();
                 std::ofstream out(local_path, std::ios::trunc);
                 out.write((char*)file.data, file.size);
             } else if (command == "test") {
                 std::string x;
-                client.async_call<void>("test", std::move(x)).get();
+                client->async_call<void>("test", std::move(x)).get();
                 std::cout << "x = " << x << '\n';
             } else if (command == "get_dir") {
                 std::string remote_path, local_path_;
                 std::cin >> remote_path >> local_path_;
-                auto file = client.async_call<std::vector<File>>("get_dir", remote_path).get();
+                auto file = client->async_call<std::vector<File>>("get_dir", remote_path).get();
 
                 fs::path local_path = local_path_;
 
@@ -79,9 +92,9 @@ int main(int argc, char **argv) {
                 std::string remote_path, local_path;
                 std::cin >> local_path >> remote_path;
                 File f(local_path);
-                client.async_call<void>("put", remote_path, f).get();
+                client->async_call<void>("put", remote_path, f).get();
             }  else if (command == "lsf") {
-                auto funcs = client.get_functions();
+                auto funcs = client->async_call<std::vector<std::string>>("functions").get();
                 for (auto& f : funcs) {
                     std::cout << "-> " << f << '\n';
                 }
@@ -91,16 +104,18 @@ int main(int argc, char **argv) {
             else if (command == "fsize") {
                 std::string path;
                 std::cin >> path;
-                std::cout << client.async_call<int>("fsize", path).get() << '\n';
+                std::cout << client->async_call<int>("fsize", path).get() << '\n';
             } else if (command == "pwd") {
-                std::cout << client.async_call<std::string>("pwd").get() << '\n';
+                std::string password;
+                std::cin >> password;
+                std::cout << client->async_call<bool>("authenticate", password).get() << '\n';
             } else if (command == "test_big") {
                 std::string big_str;
                 big_str.reserve(10000000);
                 for (int i = 0; i < 10000000; ++i) {
                     big_str.push_back("./"[(i % 2)]);
                 }
-                std::cout << client.async_call<std::string>("cd", big_str).get() << '\n';
+                std::cout << client->async_call<std::string>("cd", big_str).get() << '\n';
             } else if (command == "help") {
                 std::cout << "ls - list files\n"
                              "cd [dir] - change directory\n"
@@ -116,14 +131,14 @@ int main(int argc, char **argv) {
                 std::cout << "Unknown command\n";
             }
 
-        } catch(std::exception& e) {
-            std::cout << "Command failed with " << e.what() << std::endl;
+        } catch(rpc::peer_exception& e) {
+            std::cerr << "[Peer error] Command failed with " << e.what() << std::endl;
         }
     }
 
     std::cout << std::endl;
 
-
-    io_ctx.stop();
+    context.stop();
+    io_thread.join();
     return 0;
 }

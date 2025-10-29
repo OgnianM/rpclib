@@ -1,14 +1,20 @@
-#include <rpc/service_provider.h>
+#include <rpc/node.hpp>
 #include <filesystem>
 #include <fstream>
 #include "File.h"
 
 namespace fs = std::filesystem;
 
-template<typename socket_t>
-struct FileService : rpc::server<socket_t> {
-    FileService(socket_t&& sock) : rpc::server<socket_t>(std::move(sock)) {
+struct FileService : rpc::node {
+    FileService(rpc::ISocket* socket) : rpc::node(socket) {
         this->bind("authenticate", &FileService::authenticate, this);
+        this->bind("functions", [this]() {
+            std::vector<std::string> func_names;
+            for (const auto& [name, _] : functions) {
+                func_names.push_back(name);
+            }
+            return func_names;
+        });
     }
 
     ~FileService() {
@@ -17,7 +23,7 @@ struct FileService : rpc::server<socket_t> {
 
     bool authenticate(const std::string& password) {
         if (password == "1234") {
-            this->clear_bound();
+            functions.erase("authenticate");
             this->bind("ls", &FileService::ls, this);
             this->bind("fsize", &FileService::fsize, this);
             this->bind("get", &FileService::get, this);
@@ -84,12 +90,14 @@ int main() {
 
     auto ep = asio::ip::tcp::endpoint(asio::ip::tcp::v4(), 1234);
 
-    rpc::service_provider<rpc::types::ssl_socket_t, FileService> service_provider(ep, ssl_ctx);
+    rpc::service_provider<rpc::types::socket_t, FileService> service_provider(ep);
 
+    /*
     service_provider.on_service_created([](std::shared_ptr<FileService<rpc::types::ssl_socket_t>>& service) {
         const auto& endpoint = service.get()->get_socket().lowest_layer().remote_endpoint();
         std::cout << "Connection established from " << endpoint.address() << ':' << endpoint.port() << std::endl;
     });
+    */
     service_provider.start();
 
     std::string input;

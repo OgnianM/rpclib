@@ -1,12 +1,11 @@
-#include "rpc/node.h"
+#include "rpc/node.hpp"
 
 using namespace rpc;
 
+namespace rpc {
 thread_local std::vector<std::pair<asio::mutable_buffer, std::function<void()>>> enqueued_reads;
 thread_local std::vector<std::pair<asio::const_buffer, std::function<void(void *)>>> enqueued_writes;
 
-
-namespace rpc {
 namespace buffer {
 
 void enqueue_read(void *ptr, uint32_t count, std::function<void()> &&callback) {
@@ -122,32 +121,33 @@ void node::read_enqueued() {
     enqueued_reads.clear();
 }
 
-void node::send_exception(const std::string &what) {
+void node::send_exception(uint32_t uid, const std::string& ex) {
     std::lock_guard lock(mutex);
     if (!socket->is_open()) return;
-    rpc_frame frame{.size = static_cast<uint32_t>(what.size()), .type = frame_type::EXCEPTION};
+    auto ex_string = pack_any(ex);
+    rpc_frame frame{.uid = uid, .size = static_cast<uint32_t>(ex_string.size()), .type = frame_type::EXCEPTION};
     socket->write(asio::buffer(&frame, sizeof(frame)));
-    socket->write(asio::const_buffer(what.c_str(), what.size()));
+    socket->write(asio::const_buffer(ex_string.c_str(), ex_string.size()));
 }
 
 void node::send_command(const std::string &function, const std::string &args, std::function<void()> result_handler) {
     std::lock_guard lock(mutex);
     if (!socket->is_open()) return;
     auto uid = next_uid++;
-    rpc_command bincmd {.uid = uid, .function = function, .args = args};
+    rpc_command bincmd {.function = function, .args = args};
     auto command = pack_any(bincmd);
-    rpc_frame frame{.size = static_cast<uint32_t>(command.size()), .type = frame_type::COMMAND};
+    rpc_frame frame{.uid = uid, .size = static_cast<uint32_t>(command.size()), .type = frame_type::COMMAND};
     pending_results[uid] = std::move(result_handler);
     socket->write(asio::buffer(&frame, sizeof(frame)));
     socket->write(asio::const_buffer(command.data(), command.size()));
     this->write_enqueued();
 }
 
-void node::send_result(const rpc::rpc_result &result) {
+void node::send_result(uint32_t uid, const rpc::rpc_result &result) {
     std::lock_guard lock(mutex);
     if (!socket->is_open()) return;
     auto packed = pack_any(result);
-    rpc_frame frame{.size = static_cast<uint32_t>(packed.size()), .type = frame_type::RESULT};
+    rpc_frame frame{.uid = uid, .size = static_cast<uint32_t>(packed.size()), .type = frame_type::RESULT};
     socket->write(asio::buffer(&frame, sizeof(frame)));
     socket->write(asio::const_buffer(packed.data(), packed.size()));
     this->write_enqueued();
@@ -163,35 +163,29 @@ void node::process_frame() {
             if (it != functions.end()) {
                 try {
                     lock.unlock();
-                    (*it->second)(command.uid, command.args);
+                    (*it->second)(frame.uid, command.args);
                     lock.lock();
                 } catch (std::exception &e) {
-                    send_exception(e.what());
+                    send_exception(frame.uid, e.what());
                 }
             } else {
-                send_exception("Function not found.");
+                send_exception(frame.uid, "Function not found.");
             }
             break;
         }
-        case frame_type::RESULT: {
-            auto result = unpack_single<rpc_result>(buffer.data(), frame.size);
-
-            auto it = pending_results.find(result.uid);
+        case frame_type::RESULT: case frame_type::EXCEPTION: {
+            auto it = pending_results.find(frame.uid);
             if (it != pending_results.end()) {
                 it->second();
                 pending_results.erase(it);
             } else {
-                send_exception("No pending result found.");
+                send_exception(frame.uid, "No pending result found.");
             }
-
             break;
-        }
-        case frame_type::EXCEPTION: {
-            throw std::runtime_error("[Peer exception] " + std::string(buffer.data(), frame.size));
         }
 
         default:
-            send_exception("Unknown frame type.");
+            send_exception(frame.uid, "Unknown frame type.");
     }
 }
 
@@ -202,17 +196,13 @@ void node::stop() {
     }
 }
 
-/**
- * @brief The first function called in the async_read chain, gets the number of bytes to read and the type of transfer
- * @param handler
- */
 void node::async_read_frame(handle self) {
     socket->async_read(asio::mutable_buffer(&frame, sizeof(frame)), [this, self = std::move(self)](
             const asio::error_code &ec, std::size_t size) {
         ASIO_ERROR_GUARD(ec);
 
         if (frame.size >= COMMAND_BUFFER_SIZE) {
-            send_exception("Requested buffer size is too long.");
+            send_exception(frame.uid, "Requested buffer size is too long.");
             async_read_frame(self);
             return;
         }
@@ -226,7 +216,6 @@ void node::async_read_frame(handle self) {
             });
         } else {
             async_read_frame(self);
-            return;
         }
     });
 }
