@@ -359,7 +359,7 @@ struct node {
         using traits = function_traits<F>;
         if constexpr (std::is_member_function_pointer_v<F>) {
             if (this_ptr_ == nullptr) {
-                throw std::runtime_error("this_ptr cannot be nullptr for member functions");
+                this_ptr_ = this;
             }
         }
         static_assert(!is_lvalue_ref<typename traits::return_type>(),

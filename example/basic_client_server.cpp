@@ -8,9 +8,9 @@ struct basic_server : rpc::node {
         // Bind your functions here
 
         // Member functions
-        bind("add", &basic_server::add, this);
-        bind("strcat", &basic_server::strcat, this);
-        bind("exception", &basic_server::exception, this);
+        bind("add", &basic_server::add);
+        bind("strcat", &basic_server::strcat);
+        bind("exception", &basic_server::exception);
 
         // Lambdas
         bind("echo", [](std::string msg) {
